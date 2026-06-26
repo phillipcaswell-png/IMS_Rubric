@@ -34,6 +34,26 @@ GRADE_B = "B"
 GRADE_C = "C"
 GRADE_D = "D"
 
+# Evidence Source Types
+SOURCE_TYPE_SEC_FILING = "SEC Filing"
+SOURCE_TYPE_EARNINGS_CALL = "Earnings Call"
+SOURCE_TYPE_PRESS_RELEASE = "Press Release"
+SOURCE_TYPE_NEWS_ARTICLE = "News Article"
+SOURCE_TYPE_ANALYST_REPORT = "Analyst Report"
+SOURCE_TYPE_SOCIAL_MEDIA = "Social Media"
+SOURCE_TYPE_MANUAL_OBSERVATION = "Manual Observation"
+SOURCE_TYPE_OTHER = "Other"
+SOURCE_TYPE_OPTIONS = [
+    SOURCE_TYPE_SEC_FILING,
+    SOURCE_TYPE_EARNINGS_CALL,
+    SOURCE_TYPE_PRESS_RELEASE,
+    SOURCE_TYPE_NEWS_ARTICLE,
+    SOURCE_TYPE_ANALYST_REPORT,
+    SOURCE_TYPE_SOCIAL_MEDIA,
+    SOURCE_TYPE_MANUAL_OBSERVATION,
+    SOURCE_TYPE_OTHER,
+]
+
 # RAG States
 RAG_GREEN = "Green"
 RAG_YELLOW = "Yellow"
@@ -104,6 +124,42 @@ def init_db():
             created_at TEXT
         )
     """)
+
+    # Evidence Repository MVP columns (safe additive migration)
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN title TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN source_publisher TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN key_takeaway TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN tags TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN credibility_score INTEGER DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN materiality_score INTEGER DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN thesis_alignment TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
     
     # Pillar scores table
     cursor.execute("""
@@ -698,75 +754,93 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    source_name = st.text_input("Source Name *", placeholder="e.g., Bloomberg, Company 10-K")
+                    evidence_title = st.text_input("Title *", placeholder="e.g., NVIDIA Q2 10-Q Filing")
                 
                 with col2:
-                    source_type = st.text_input("Source Type", placeholder="e.g., News, Research, Filing")
+                    source_type = st.selectbox(
+                        "Source Type *",
+                        [""] + SOURCE_TYPE_OPTIONS
+                    )
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    publication_date = st.date_input("Publication Date")
+                    source_publisher = st.text_input("Source / Publisher *", placeholder="e.g., SEC, Bloomberg, Reuters")
                 
                 with col2:
-                    evidence_grade = st.selectbox(
-                        "Evidence Grade",
-                        ["", GRADE_A, GRADE_B, GRADE_C, GRADE_D]
+                    publication_date = st.date_input("Publication Date")
+
+                url_or_citation = st.text_input("URL (Optional)", placeholder="https://...")
+
+                summary = st.text_area("Summary *", placeholder="Summarize the evidence", height=100)
+
+                key_takeaway = st.text_area("Key Takeaway *", placeholder="What is the key actionable takeaway?", height=80)
+
+                tags = st.text_input("Tags", placeholder="ai, datacenter, margins")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    credibility_score = st.number_input(
+                        "Credibility Score (1-10)",
+                        min_value=1,
+                        max_value=10,
+                        value=5
                     )
-                
-                confidence_basis = st.text_input("Confidence Basis", placeholder="e.g., Expert Opinion, Statistical, Proprietary Data")
-                
-                url_or_citation = st.text_input("URL or Citation", placeholder="Full URL or citation details")
-                
-                related_pillar = st.selectbox(
-                    "Related Pillar",
-                    [
-                        "",
-                        "B1 Business Quality",
-                        "B2 Competitive Advantage",
-                        "B3 Leadership and Governance",
-                        "B4 Financial Resilience",
-                        "B5 Execution Capability",
-                        "B6 Industry Position",
-                        "B7 Systems Importance",
-                        "I1 Valuation",
-                        "I2 Market Structure",
-                        "I3 Market Sentiment",
-                        "I4 Portfolio Contribution",
-                        "General"
-                    ]
+
+                with col2:
+                    materiality_score = st.number_input(
+                        "Materiality Score (1-10)",
+                        min_value=1,
+                        max_value=10,
+                        value=5
+                    )
+
+                thesis_alignment = st.selectbox(
+                    "Thesis Alignment",
+                    ["Bull", "Bear", "Neutral"]
                 )
-                
-                evidence_summary = st.text_area("Evidence Summary *", placeholder="Summarize the key findings and relevance to thesis", height=100)
                 
                 submitted = st.form_submit_button("Add Evidence", use_container_width=True)
                 
                 if submitted:
                     # Validation
-                    if not source_name.strip():
-                        st.error("Source Name is required.")
-                    elif not evidence_summary.strip():
-                        st.error("Evidence Summary is required.")
+                    if not evidence_title.strip():
+                        st.error("Title is required.")
+                    elif not source_type:
+                        st.error("Source Type is required.")
+                    elif not source_publisher.strip():
+                        st.error("Source / Publisher is required.")
+                    elif not summary.strip():
+                        st.error("Summary is required.")
+                    elif not key_takeaway.strip():
+                        st.error("Key Takeaway is required.")
                     else:
                         # Insert into database
                         insert_query(
                             """
                             INSERT INTO evidence_items
-                            (thesis_id, source_name, source_type, publication_date, evidence_grade,
-                             confidence_basis, url_or_citation, related_pillar, evidence_summary, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            (thesis_id, source_name, source_type, publication_date,
+                             url_or_citation, evidence_summary, created_at,
+                             title, source_publisher, key_takeaway, tags,
+                             credibility_score, materiality_score, thesis_alignment)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 thesis_id,
-                                source_name.strip(),
-                                source_type.strip() if source_type else None,
+                                evidence_title.strip(),
+                                source_type,
                                 publication_date.isoformat() if publication_date else None,
-                                evidence_grade if evidence_grade else None,
-                                confidence_basis.strip() if confidence_basis else None,
                                 url_or_citation.strip() if url_or_citation else None,
-                                related_pillar if related_pillar else None,
-                                evidence_summary.strip(),
-                                datetime.now().isoformat()
+                                summary.strip(),
+                                datetime.now().isoformat(),
+                                evidence_title.strip(),
+                                source_publisher.strip(),
+                                key_takeaway.strip(),
+                                tags.strip() if tags else None,
+                                int(credibility_score),
+                                int(materiality_score),
+                                thesis_alignment
                             )
                         )
                         
@@ -775,12 +849,12 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         log_event(
                             thesis_id=thesis_id,
                             event_type=EVENT_EVIDENCE_ADDED,
-                            description=f"Evidence item added: {source_name.strip()}",
+                            description=f"Evidence item added: {evidence_title.strip()}",
                             created_by=event_created_by,
                             version="1.0"
                         )
                         
-                        st.success(f"✓ Evidence added: {source_name.strip()}")
+                        st.success(f"✓ Evidence added: {evidence_title.strip()}")
                         st.rerun()
             
             st.divider()
@@ -790,8 +864,19 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             evidence_df = fetch_dataframe(
                 """
                 SELECT 
-                    id, source_name, source_type, publication_date, evidence_grade,
-                    confidence_basis, url_or_citation, related_pillar, evidence_summary, created_at
+                    id,
+                    COALESCE(title, source_name) AS title,
+                    source_type,
+                    source_publisher,
+                    url_or_citation,
+                    publication_date,
+                    COALESCE(evidence_summary, '') AS summary,
+                    key_takeaway,
+                    tags,
+                    credibility_score,
+                    materiality_score,
+                    thesis_alignment,
+                    created_at
                 FROM evidence_items
                 WHERE thesis_id = ?
                 ORDER BY created_at DESC
