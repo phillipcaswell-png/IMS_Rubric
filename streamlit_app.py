@@ -1118,7 +1118,11 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             pillar_options = [
                 "B1 Business Quality",
                 "B2 Competitive Advantage",
-                "B3 Revenue Quality"
+                "B3 Revenue Quality",
+                "B4 Financial Resilience",
+                "B5 Execution Capability",
+                "B6 Industry Position",
+                "B7 Systems Importance"
             ]
             selected_pillar = st.selectbox("Select Pillar to Score", pillar_options)
 
@@ -1132,6 +1136,11 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             existing_record = existing_df.iloc[0] if not existing_df.empty else None
 
             with st.form("business_quality_scoring_form"):
+                if pillar_id == "B4":
+                    st.info("Financial resilience should account for non-linearity: unusually high cash positions relative to revenue may indicate inefficient capital allocation rather than strength.")
+                elif pillar_id == "B7":
+                    st.info("Systems importance should account for dependency quality: reliance on a single government program or contract should not automatically receive a high score.")
+
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -1323,7 +1332,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     reviewer, review_date, drl, created_at
                 FROM pillar_scores
                 WHERE thesis_id = ? AND pillar_id LIKE 'B%'
-                ORDER BY pillar_id
+                ORDER BY pillar_id ASC
                 """,
                 (thesis_id,)
             )
