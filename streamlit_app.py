@@ -1113,36 +1113,27 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             st.rerun()
         
         with tab3:
-            # Add Business Assessment Form
-            section_header("Add Business Assessment")
-            
-            # Pillar selection (outside form to enable preloading)
+            section_header("Business Quality Scoring")
+
             pillar_options = [
-                "",
                 "B1 Business Quality",
                 "B2 Competitive Advantage",
-                "B3 Leadership and Governance",
-                "B4 Financial Resilience",
-                "B5 Execution Capability",
-                "B6 Industry Position",
-                "B7 Systems Importance"
+                "B3 Revenue Quality"
             ]
-            selected_pillar = st.selectbox("Select Pillar to Edit *", pillar_options)
-            
-            # Check for existing record
-            existing_record = None
-            if selected_pillar and selected_pillar != "":
-                pillar_id_check = selected_pillar.split(" ", 1)[0]
-                existing_df = fetch_dataframe(
-                    "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",
-                    (thesis_id, pillar_id_check)
-                )
-                if not existing_df.empty:
-                    existing_record = existing_df.iloc[0]
-            
-            with st.form("business_assessment_form"):
+            selected_pillar = st.selectbox("Select Pillar to Score", pillar_options)
+
+            pillar_id = selected_pillar.split(" ", 1)[0]
+            pillar_name = selected_pillar.split(" ", 1)[1]
+
+            existing_df = fetch_dataframe(
+                "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",
+                (thesis_id, pillar_id)
+            )
+            existing_record = existing_df.iloc[0] if not existing_df.empty else None
+
+            with st.form("business_quality_scoring_form"):
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     score = st.number_input(
                         "Score (1-10)",
@@ -1150,243 +1141,174 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         max_value=10,
                         value=int(existing_record['score']) if existing_record is not None and pd.notna(existing_record['score']) else 5
                     )
-                
+
                 with col2:
-                    rag_options = ["", RAG_GREEN, RAG_YELLOW, RAG_ORANGE, RAG_RED]
+                    rag_options = [RAG_GREEN, RAG_YELLOW, RAG_ORANGE, RAG_RED]
                     rag_default_idx = 0
                     if existing_record is not None and pd.notna(existing_record['rag_status']):
                         try:
                             rag_default_idx = rag_options.index(existing_record['rag_status'])
                         except ValueError:
                             rag_default_idx = 0
-                    rag_status = st.selectbox(
-                        "RAG Status",
-                        rag_options,
-                        index=rag_default_idx
-                    )
-                
+                    rag_status = st.selectbox("RAG Status", rag_options, index=rag_default_idx)
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
-                    grade_options = ["", GRADE_A, GRADE_B, GRADE_C, GRADE_D]
+                    grade_options = [GRADE_A, GRADE_B, GRADE_C, GRADE_D]
                     grade_default_idx = 0
                     if existing_record is not None and pd.notna(existing_record['evidence_grade']):
                         try:
                             grade_default_idx = grade_options.index(existing_record['evidence_grade'])
                         except ValueError:
                             grade_default_idx = 0
-                    evidence_grade = st.selectbox(
-                        "Evidence Grade",
-                        grade_options,
-                        index=grade_default_idx
-                    )
-                
+                    evidence_grade = st.selectbox("Evidence Grade", grade_options, index=grade_default_idx)
+
                 with col2:
                     confidence_basis = st.text_input(
-                        "Confidence Basis *",
-                        value=existing_record['confidence_basis'] if existing_record is not None and pd.notna(existing_record['confidence_basis']) else "",
-                        placeholder="e.g., Expert Opinion, Statistical Analysis"
+                        "Confidence Basis",
+                        value=existing_record['confidence_basis'] if existing_record is not None and pd.notna(existing_record['confidence_basis']) else ""
                     )
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    primary_sources = st.text_input(
-                        "Primary Sources",
-                        value=existing_record['primary_sources'] if existing_record is not None and pd.notna(existing_record['primary_sources']) else "",
-                        placeholder="List of primary sources"
-                    )
-                
-                with col2:
-                    evidence_items = st.text_input(
-                        "Evidence Items",
-                        value=existing_record['evidence_items'] if existing_record is not None and pd.notna(existing_record['evidence_items']) else "",
-                        placeholder="Related evidence items"
-                    )
-                
+
                 inference = st.text_area(
-                    "Inference *",
+                    "Inference",
                     value=existing_record['inference'] if existing_record is not None and pd.notna(existing_record['inference']) else "",
-                    placeholder="What is your inference from this assessment?",
                     height=80
                 )
-                
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
-                    conf_options = ["", "Low", "Moderate", "High"]
+                    conf_options = ["Low", "Moderate", "High"]
                     conf_default_idx = 0
                     if existing_record is not None and pd.notna(existing_record['inference_confidence']):
                         try:
                             conf_default_idx = conf_options.index(existing_record['inference_confidence'])
                         except ValueError:
                             conf_default_idx = 0
-                    inference_confidence = st.selectbox(
-                        "Inference Confidence",
-                        conf_options,
-                        index=conf_default_idx
-                    )
-                
+                    inference_confidence = st.selectbox("Inference Confidence", conf_options, index=conf_default_idx)
+
                 with col2:
                     falsification_trigger = st.text_input(
-                        "Falsification Trigger *",
-                        value=existing_record['falsification_trigger'] if existing_record is not None and pd.notna(existing_record['falsification_trigger']) else "",
-                        placeholder="What would prove this wrong?"
+                        "Falsification Trigger",
+                        value=existing_record['falsification_trigger'] if existing_record is not None and pd.notna(existing_record['falsification_trigger']) else ""
                     )
-                
+
                 score_rationale = st.text_area(
-                    "Score Rationale *",
+                    "Score Rationale",
                     value=existing_record['score_rationale'] if existing_record is not None and pd.notna(existing_record['score_rationale']) else "",
-                    placeholder="Explain how you arrived at this score",
                     height=80
                 )
-                
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     reviewer = st.text_input(
                         "Reviewer",
-                        value=existing_record['reviewer'] if existing_record is not None and pd.notna(existing_record['reviewer']) else "",
-                        placeholder="Name of reviewer"
+                        value=existing_record['reviewer'] if existing_record is not None and pd.notna(existing_record['reviewer']) else ""
                     )
-                
+
                 with col2:
                     review_date = st.date_input(
                         "Review Date",
                         value=pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else datetime.now().date()
                     )
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    drl_options = [""] + list(range(1, 10))
-                    drl_default_idx = 0
-                    if existing_record is not None and pd.notna(existing_record['drl']):
-                        try:
-                            drl_default_idx = drl_options.index(existing_record['drl'])
-                        except ValueError:
-                            drl_default_idx = 0
-                    drl = st.selectbox("DRL", drl_options, index=drl_default_idx)
-                
-                with col2:
-                    st.write("")  # Spacer
-                
-                submitted = st.form_submit_button("Save Assessment", use_container_width=True)
-                
+
+                submitted = st.form_submit_button("Save Business Quality Score", use_container_width=True)
+
                 if submitted:
-                    # Validation
-                    if not selected_pillar or selected_pillar == "":
-                        st.error("Pillar is required.")
-                    elif not confidence_basis.strip():
-                        st.error("Confidence Basis is required.")
-                    elif not inference.strip():
-                        st.error("Inference is required.")
-                    elif not falsification_trigger.strip():
-                        st.error("Falsification Trigger is required.")
-                    elif not score_rationale.strip():
-                        st.error("Score Rationale is required.")
-                    else:
-                        # Split pillar into ID and name
-                        pillar_parts = selected_pillar.split(" ", 1)
-                        pillar_id = pillar_parts[0]
-                        pillar_name = pillar_parts[1] if len(pillar_parts) > 1 else ""
-                        
-                        # Determine created_by
-                        if reviewer.strip():
-                            created_by = reviewer.strip()
-                        elif thesis['reviewer']:
-                            created_by = thesis['reviewer']
-                        else:
-                            created_by = "System"
-                        
-                        # Check if record exists (query to be sure)
-                        check_df = fetch_dataframe(
-                            "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",
-                            (thesis_id, pillar_id)
+                    created_by = reviewer.strip() if reviewer and reviewer.strip() else (thesis['reviewer'] if thesis['reviewer'] else "System")
+
+                    check_df = fetch_dataframe(
+                        "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",
+                        (thesis_id, pillar_id)
+                    )
+
+                    if not check_df.empty:
+                        run_query(
+                            """
+                            UPDATE pillar_scores
+                            SET pillar_name = ?,
+                                score = ?,
+                                rag_status = ?,
+                                evidence_grade = ?,
+                                confidence_basis = ?,
+                                inference = ?,
+                                inference_confidence = ?,
+                                falsification_trigger = ?,
+                                score_rationale = ?,
+                                reviewer = ?,
+                                review_date = ?
+                            WHERE thesis_id = ? AND pillar_id = ?
+                            """,
+                            (
+                                pillar_name,
+                                score,
+                                rag_status,
+                                evidence_grade,
+                                confidence_basis.strip() if confidence_basis else None,
+                                inference.strip() if inference else None,
+                                inference_confidence,
+                                falsification_trigger.strip() if falsification_trigger else None,
+                                score_rationale.strip() if score_rationale else None,
+                                reviewer.strip() if reviewer else None,
+                                review_date.isoformat() if review_date else None,
+                                thesis_id,
+                                pillar_id
+                            )
                         )
-                        
-                        if not check_df.empty:
-                            # UPDATE existing record
-                            run_query(
-                                """
-                                UPDATE pillar_scores
-                                SET score = ?, rag_status = ?, evidence_grade = ?,
-                                    confidence_basis = ?, primary_sources = ?, evidence_items = ?,
-                                    inference = ?, inference_confidence = ?, falsification_trigger = ?,
-                                    score_rationale = ?, reviewer = ?, review_date = ?, drl = ?
-                                WHERE thesis_id = ? AND pillar_id = ?
-                                """,
-                                (
-                                    score,
-                                    rag_status if rag_status else None,
-                                    evidence_grade if evidence_grade else None,
-                                    confidence_basis.strip(),
-                                    primary_sources.strip() if primary_sources else None,
-                                    evidence_items.strip() if evidence_items else None,
-                                    inference.strip(),
-                                    inference_confidence if inference_confidence else None,
-                                    falsification_trigger.strip(),
-                                    score_rationale.strip(),
-                                    reviewer.strip() if reviewer else None,
-                                    review_date.isoformat() if review_date else None,
-                                    int(drl) if drl else None,
-                                    thesis_id,
-                                    pillar_id
-                                )
+
+                        log_event(
+                            thesis_id=thesis_id,
+                            event_type=EVENT_BUSINESS_ASSESSMENT_UPDATED,
+                            description=f"Business assessment updated: {pillar_id} {pillar_name}",
+                            created_by=created_by,
+                            version="1.0"
+                        )
+
+                        st.success(f"✓ Business assessment updated for {pillar_id} {pillar_name}")
+                    else:
+                        insert_query(
+                            """
+                            INSERT INTO pillar_scores
+                            (thesis_id, pillar_id, pillar_name, score, rag_status, evidence_grade,
+                             confidence_basis, primary_sources, evidence_items, inference,
+                             inference_confidence, falsification_trigger, score_rationale,
+                             reviewer, review_date, drl, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                thesis_id,
+                                pillar_id,
+                                pillar_name,
+                                score,
+                                rag_status,
+                                evidence_grade,
+                                confidence_basis.strip() if confidence_basis else None,
+                                None,
+                                None,
+                                inference.strip() if inference else None,
+                                inference_confidence,
+                                falsification_trigger.strip() if falsification_trigger else None,
+                                score_rationale.strip() if score_rationale else None,
+                                reviewer.strip() if reviewer else None,
+                                review_date.isoformat() if review_date else None,
+                                None,
+                                datetime.now().isoformat()
                             )
-                            
-                            log_event(
-                                thesis_id=thesis_id,
-                                event_type=EVENT_BUSINESS_ASSESSMENT_UPDATED,
-                                description=f"Business assessment updated: {pillar_id} {pillar_name}",
-                                created_by=created_by,
-                                version="1.0"
-                            )
-                            
-                            st.success(f"✓ Business assessment updated for {pillar_id} {pillar_name}")
-                        else:
-                            # INSERT new record
-                            insert_query(
-                                """
-                                INSERT INTO pillar_scores
-                                (thesis_id, pillar_id, pillar_name, score, rag_status, evidence_grade,
-                                 confidence_basis, primary_sources, evidence_items, inference,
-                                 inference_confidence, falsification_trigger, score_rationale,
-                                 reviewer, review_date, drl, created_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """,
-                                (
-                                    thesis_id,
-                                    pillar_id,
-                                    pillar_name,
-                                    score,
-                                    rag_status if rag_status else None,
-                                    evidence_grade if evidence_grade else None,
-                                    confidence_basis.strip(),
-                                    primary_sources.strip() if primary_sources else None,
-                                    evidence_items.strip() if evidence_items else None,
-                                    inference.strip(),
-                                    inference_confidence if inference_confidence else None,
-                                    falsification_trigger.strip(),
-                                    score_rationale.strip(),
-                                    reviewer.strip() if reviewer else None,
-                                    review_date.isoformat() if review_date else None,
-                                    int(drl) if drl else None,
-                                    datetime.now().isoformat()
-                                )
-                            )
-                            
-                            log_event(
-                                thesis_id=thesis_id,
-                                event_type=EVENT_BUSINESS_ASSESSMENT_COMPLETED,
-                                description=f"Business assessment saved: {pillar_id} {pillar_name}",
-                                created_by=created_by,
-                                version="1.0"
-                            )
-                            
-                            st.success(f"✓ Business assessment saved for {pillar_id} {pillar_name}")
-                        
-                        st.rerun()
+                        )
+
+                        log_event(
+                            thesis_id=thesis_id,
+                            event_type=EVENT_BUSINESS_ASSESSMENT_COMPLETED,
+                            description=f"Business assessment saved: {pillar_id} {pillar_name}",
+                            created_by=created_by,
+                            version="1.0"
+                        )
+
+                        st.success(f"✓ Business assessment saved for {pillar_id} {pillar_name}")
+
+                    st.rerun()
             
             st.divider()
             
