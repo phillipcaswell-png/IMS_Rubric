@@ -1322,18 +1322,44 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 """
                 SELECT 
                     pillar_id, pillar_name, score, rag_status, evidence_grade,
-                    judgment, confidence_basis, primary_sources, evidence_items,
-                    falsification_trigger,
-                    reviewer, review_date, drl, created_at
+                    judgment, inference_confidence
                 FROM pillar_scores
                 WHERE thesis_id = ? AND pillar_id LIKE 'B%'
                 ORDER BY pillar_id ASC
                 """,
-                (thesis_id,)
+                (st.session_state['selected_thesis_id'],)
             )
             
             if not business_df.empty:
-                st.dataframe(business_df, use_container_width=True)
+                rag_map = {
+                    RAG_GREEN: "🟢 Green",
+                    RAG_YELLOW: "🟡 Yellow",
+                    RAG_ORANGE: "🟠 Orange",
+                    RAG_RED: "🔴 Red"
+                }
+
+                business_df["Pillar"] = business_df.apply(
+                    lambda row: f"{row['pillar_id']} — {row['pillar_name']}" if isinstance(row['pillar_name'], str) and row['pillar_name'].strip() else str(row['pillar_id']),
+                    axis=1
+                )
+                business_df["RAG Status"] = business_df["rag_status"].apply(
+                    lambda x: rag_map.get(x, "— Unknown")
+                )
+                business_df["Evidence Grade"] = business_df["evidence_grade"].apply(
+                    lambda x: x if isinstance(x, str) and x.strip() else "—"
+                )
+                business_df["Judgment"] = business_df["judgment"].apply(
+                    lambda x: (x[:60] + "...") if isinstance(x, str) and len(x) > 60 else (x or "—")
+                )
+                business_df["Confidence"] = business_df["inference_confidence"].apply(
+                    lambda x: x if isinstance(x, str) and x.strip() else "—"
+                )
+
+                summary_df = business_df[["Pillar", "score", "RAG Status", "Evidence Grade", "Judgment", "Confidence"]].rename(
+                    columns={"score": "Score"}
+                )
+
+                st.dataframe(summary_df, use_container_width=True)
             else:
                 empty_state("No business assessment scores have been added for this thesis yet.")
         
