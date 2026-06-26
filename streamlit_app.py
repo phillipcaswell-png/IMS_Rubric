@@ -385,7 +385,7 @@ with st.sidebar:
     
     for idx, row in theses_df.iterrows():
         if st.button(row['company_name'], key=f"thesis_{row['id']}"):
-            st.session_state['current_view'] = 'Thesis Detail'
+            st.session_state['current_view'] = 'Thesis Workspace'
             st.session_state['selected_thesis_id'] = row['id']
     
     st.divider()
@@ -553,7 +553,7 @@ elif st.session_state['current_view'] == 'New Thesis':
                 st.session_state['selected_thesis_id'] = None
                 st.rerun()
 
-elif st.session_state['current_view'] == 'Thesis Detail':
+elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
     # Get thesis data
     thesis_id = st.session_state['selected_thesis_id']
     thesis_df = fetch_dataframe(
@@ -579,12 +579,25 @@ elif st.session_state['current_view'] == 'Thesis Detail':
             st.metric("Horizon", thesis['primary_horizon'] or "-")
         with col5:
             st.metric("Reviewer", thesis['reviewer'] or "-")
+
+        st.caption("Thesis Workspace")
         
         st.divider()
         
         # Tabs
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
-            ["Overview", "Evidence", "Business Assessment", "Investment Assessment", "Decision", "Monitoring", "Audit Trail", "JSON"]
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs(
+            [
+                "Overview",
+                "Evidence",
+                "Business Quality",
+                "Industry",
+                "Financials",
+                "Management",
+                "Valuation",
+                "Risk",
+                "Decision",
+                "Audit Trail"
+            ]
         )
         
         with tab1:
@@ -648,6 +661,34 @@ elif st.session_state['current_view'] == 'Thesis Detail':
             
             for label, is_checked in milestones:
                 st.checkbox(label, value=is_checked, disabled=True)
+
+            st.divider()
+
+            # Keep JSON export functionality available inside the workspace.
+            section_header("JSON Export")
+
+            thesis_json = build_thesis_json(thesis_id)
+            st.json(thesis_json)
+
+            json_string = json.dumps(thesis_json, indent=2, default=str)
+            st.download_button(
+                label="Download IMS Evaluation JSON",
+                data=json_string,
+                file_name=f"ims_thesis_{thesis_id}.json",
+                mime="application/json",
+                key="json_download"
+            )
+
+            if st.button("Log This Export", key="json_log"):
+                log_event(
+                    thesis_id=thesis_id,
+                    event_type=EVENT_JSON_EXPORTED,
+                    description="JSON export logged by reviewer.",
+                    created_by=thesis['reviewer'] if thesis['reviewer'] else "System",
+                    version="1.0"
+                )
+                st.success("✓ Export logged")
+                st.rerun()
         
         with tab2:
             # Add Evidence Item Form
@@ -1063,6 +1104,15 @@ elif st.session_state['current_view'] == 'Thesis Detail':
                 empty_state("No business assessment scores have been added for this thesis yet.")
         
         with tab4:
+            empty_state("Industry Module Coming Next")
+
+        with tab5:
+            empty_state("Financials Module Coming Next")
+
+        with tab6:
+            empty_state("Management Module Coming Next")
+
+        with tab7:
             # Add Investment Assessment Form
             section_header("Add Investment Assessment")
             
@@ -1370,7 +1420,10 @@ elif st.session_state['current_view'] == 'Thesis Detail':
             else:
                 empty_state("No investment assessment scores have been added for this thesis yet.")
         
-        with tab5:
+        with tab8:
+            empty_state("Risk Module Coming Next")
+
+        with tab9:
             # Decision Form
             section_header("Record Decision")
             
@@ -1523,10 +1576,7 @@ elif st.session_state['current_view'] == 'Thesis Detail':
             else:
                 empty_state("No decision has been recorded for this thesis yet.")
         
-        with tab6:
-            empty_state("**Placeholder:** Monitoring content coming soon.")
-        
-        with tab7:
+        with tab10:
             # Audit Trail
             section_header("Audit Trail")
             
@@ -1550,37 +1600,8 @@ elif st.session_state['current_view'] == 'Thesis Detail':
                 st.divider()
                 empty_state("No audit events have been recorded for this thesis yet.")
         
-        with tab8:
-            # JSON Export
-            section_header("JSON Export")
-            
-            # Build and display JSON
-            thesis_json = build_thesis_json(thesis_id)
-            st.json(thesis_json)
-            
-            st.divider()
-            
-            # Download button
-            json_string = json.dumps(thesis_json, indent=2, default=str)
-            st.download_button(
-                label="Download IMS Evaluation JSON",
-                data=json_string,
-                file_name=f"ims_thesis_{thesis_id}.json",
-                mime="application/json",
-                key="json_download"
-            )
-            
-            # Manual export logging button
-            if st.button("Log This Export", key="json_log"):
-                log_event(
-                    thesis_id=thesis_id,
-                    event_type=EVENT_JSON_EXPORTED,
-                    description="JSON export logged by reviewer.",
-                    created_by=thesis['reviewer'] if thesis['reviewer'] else "System",
-                    version="1.0"
-                )
-                st.success("✓ Export logged")
-                st.rerun()
+    else:
+        st.error("Selected thesis could not be found.")
 
 elif st.session_state['current_view'] == 'Settings':
     st.header("Settings")
