@@ -1156,8 +1156,18 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     judgment_default = str(existing_record['inference'])
 
             with st.form("business_quality_scoring_form"):
-                if pillar_id == "B4":
+                if pillar_id == "B1":
+                    st.info("A high gross margin score should reflect durability and trend direction, not just the current level — a declining margin at 70% may score lower than a stable margin at 45%.")
+                elif pillar_id == "B2":
+                    st.info("Score the structural barrier, not the product — ask how long a well-funded competitor would need to replicate the company's market position, not whether the product is good.")
+                elif pillar_id == "B3":
+                    st.info("Prioritize recurring, contracted, or subscription revenue over transactional revenue — evaluate what percentage of next year's revenue is already secured.")
+                elif pillar_id == "B4":
                     st.info("Financial resilience should account for non-linearity: unusually high cash positions relative to revenue may indicate inefficient capital allocation rather than strength.")
+                elif pillar_id == "B5":
+                    st.info("Score against stated commitments, not absolute performance — a company that consistently delivers 90% of guidance scores higher than one that occasionally delivers 120% unpredictably.")
+                elif pillar_id == "B6":
+                    st.info("A dominant position in a declining industry is not the same as a strong position in a growing one — the score should reflect both current standing and structural trajectory.")
                 elif pillar_id == "B7":
                     st.info("Systems importance should account for dependency quality: reliance on a single government program or contract should not automatically receive a high score.")
 
