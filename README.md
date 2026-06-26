@@ -1,25 +1,47 @@
-# 🎈 Blank app template
+# IMS Rubric
 
-A simple Streamlit app template for you to modify!
+This repository currently contains a minimal Streamlit application scaffold for IMS Rubric work.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+## Current state
 
-### How to run it on your own machine
+- The user interface is implemented in `/home/runner/work/IMS_Rubric/IMS_Rubric/streamlit_app.py`.
+- The project is managed with `uv` and configured in `/home/runner/work/IMS_Rubric/IMS_Rubric/pyproject.toml`.
+- No persistent database layer is implemented today.
+- The checked-in app is a simple placeholder screen rather than a completed product workflow.
 
-Prerequisite: install `uv` if you don't already have it.
+## Repository layout
 
+```text
+IMS_Rubric/
+├── README.md
+├── docs/
+│   ├── architecture.md
+│   ├── database.md
+│   └── developer.md
+├── pyproject.toml
+├── streamlit_app.py
+└── uv.lock
 ```
-$ curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
-1. Sync the dependencies
+## Local development
 
-   ```
-   $ uv sync
+1. Install `uv`.
+2. Sync dependencies:
+
+   ```bash
+   uv sync
    ```
 
-2. Run the app
+3. Start the Streamlit app:
 
+   ```bash
+   uv run streamlit run streamlit_app.py
    ```
-   $ uv run streamlit run streamlit_app.py
-   ```
+
+The default app starts a single Streamlit page with placeholder content.
+
+## Documentation
+
+- Architecture: `/home/runner/work/IMS_Rubric/IMS_Rubric/docs/architecture.md`
+- Database: `/home/runner/work/IMS_Rubric/IMS_Rubric/docs/database.md`
+- Developer guide: `/home/runner/work/IMS_Rubric/IMS_Rubric/docs/developer.md`
