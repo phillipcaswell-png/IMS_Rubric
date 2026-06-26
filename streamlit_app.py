@@ -185,6 +185,19 @@ def init_db():
             created_at TEXT
         )
     """)
+
+    try:
+        cursor.execute("ALTER TABLE pillar_scores ADD COLUMN judgment TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    cursor.execute(
+        """
+        UPDATE pillar_scores
+        SET judgment = inference
+        WHERE judgment IS NULL AND inference IS NOT NULL
+        """
+    )
     
     # Decision logs table
     cursor.execute("""
@@ -1135,6 +1148,13 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             )
             existing_record = existing_df.iloc[0] if not existing_df.empty else None
 
+            judgment_default = ""
+            if existing_record is not None:
+                if 'judgment' in existing_record.index and pd.notna(existing_record['judgment']) and str(existing_record['judgment']).strip() != "":
+                    judgment_default = str(existing_record['judgment'])
+                elif pd.notna(existing_record['inference']) and str(existing_record['inference']).strip() != "":
+                    judgment_default = str(existing_record['inference'])
+
             with st.form("business_quality_scoring_form"):
                 if pillar_id == "B4":
                     st.info("Financial resilience should account for non-linearity: unusually high cash positions relative to revenue may indicate inefficient capital allocation rather than strength.")
@@ -1175,38 +1195,19 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
 
                 with col2:
                     confidence_basis = st.text_input(
-                        "Confidence Basis",
+                        "Confidence Basis (why you trust or distrust this judgment)",
                         value=existing_record['confidence_basis'] if existing_record is not None and pd.notna(existing_record['confidence_basis']) else ""
                     )
 
-                inference = st.text_area(
-                    "Inference",
-                    value=existing_record['inference'] if existing_record is not None and pd.notna(existing_record['inference']) else "",
+                judgment = st.text_area(
+                    "Judgment",
+                    value=judgment_default,
                     height=80
                 )
 
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    conf_options = ["Low", "Moderate", "High"]
-                    conf_default_idx = 0
-                    if existing_record is not None and pd.notna(existing_record['inference_confidence']):
-                        try:
-                            conf_default_idx = conf_options.index(existing_record['inference_confidence'])
-                        except ValueError:
-                            conf_default_idx = 0
-                    inference_confidence = st.selectbox("Inference Confidence", conf_options, index=conf_default_idx)
-
-                with col2:
-                    falsification_trigger = st.text_input(
-                        "Falsification Trigger",
-                        value=existing_record['falsification_trigger'] if existing_record is not None and pd.notna(existing_record['falsification_trigger']) else ""
-                    )
-
-                score_rationale = st.text_area(
-                    "Score Rationale",
-                    value=existing_record['score_rationale'] if existing_record is not None and pd.notna(existing_record['score_rationale']) else "",
-                    height=80
+                falsification_trigger = st.text_input(
+                    "Falsification Trigger",
+                    value=existing_record['falsification_trigger'] if existing_record is not None and pd.notna(existing_record['falsification_trigger']) else ""
                 )
 
                 col1, col2 = st.columns(2)
@@ -1241,11 +1242,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                 score = ?,
                                 rag_status = ?,
                                 evidence_grade = ?,
+                                judgment = ?,
                                 confidence_basis = ?,
-                                inference = ?,
-                                inference_confidence = ?,
                                 falsification_trigger = ?,
-                                score_rationale = ?,
                                 reviewer = ?,
                                 review_date = ?
                             WHERE thesis_id = ? AND pillar_id = ?
@@ -1255,11 +1254,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                 score,
                                 rag_status,
                                 evidence_grade,
+                                judgment.strip() if judgment else None,
                                 confidence_basis.strip() if confidence_basis else None,
-                                inference.strip() if inference else None,
-                                inference_confidence,
                                 falsification_trigger.strip() if falsification_trigger else None,
-                                score_rationale.strip() if score_rationale else None,
                                 reviewer.strip() if reviewer else None,
                                 review_date.isoformat() if review_date else None,
                                 thesis_id,
@@ -1281,10 +1278,10 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             """
                             INSERT INTO pillar_scores
                             (thesis_id, pillar_id, pillar_name, score, rag_status, evidence_grade,
-                             confidence_basis, primary_sources, evidence_items, inference,
-                             inference_confidence, falsification_trigger, score_rationale,
+                             judgment, confidence_basis, primary_sources, evidence_items,
+                             falsification_trigger,
                              reviewer, review_date, drl, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 thesis_id,
@@ -1293,13 +1290,11 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                 score,
                                 rag_status,
                                 evidence_grade,
+                                judgment.strip() if judgment else None,
                                 confidence_basis.strip() if confidence_basis else None,
                                 None,
                                 None,
-                                inference.strip() if inference else None,
-                                inference_confidence,
                                 falsification_trigger.strip() if falsification_trigger else None,
-                                score_rationale.strip() if score_rationale else None,
                                 reviewer.strip() if reviewer else None,
                                 review_date.isoformat() if review_date else None,
                                 None,
@@ -1327,8 +1322,8 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 """
                 SELECT 
                     pillar_id, pillar_name, score, rag_status, evidence_grade,
-                    confidence_basis, primary_sources, evidence_items, inference,
-                    inference_confidence, falsification_trigger, score_rationale,
+                    judgment, confidence_basis, primary_sources, evidence_items,
+                    falsification_trigger,
                     reviewer, review_date, drl, created_at
                 FROM pillar_scores
                 WHERE thesis_id = ? AND pillar_id LIKE 'B%'
