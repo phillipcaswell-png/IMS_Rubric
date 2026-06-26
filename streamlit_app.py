@@ -12,6 +12,7 @@ from datetime import datetime
 EVENT_EVALUATION_CREATED = "Evaluation Created"
 EVENT_EVIDENCE_ADDED = "Evidence Added"
 EVENT_EVIDENCE_UPDATED = "Evidence Updated"
+EVENT_EVIDENCE_DELETED = "Evidence Deleted"
 EVENT_BUSINESS_ASSESSMENT_COMPLETED = "Business Assessment Completed"
 EVENT_BUSINESS_ASSESSMENT_UPDATED = "Business Assessment Updated"
 EVENT_INVESTMENT_ASSESSMENT_COMPLETED = "Investment Assessment Completed"
@@ -419,6 +420,8 @@ if 'current_view' not in st.session_state:
     st.session_state['current_view'] = 'Dashboard'
 if 'selected_thesis_id' not in st.session_state:
     st.session_state['selected_thesis_id'] = None
+if 'selected_evidence_id' not in st.session_state:
+    st.session_state['selected_evidence_id'] = None
 
 # Sidebar navigation
 with st.sidebar:
@@ -888,6 +891,226 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 st.dataframe(evidence_df, use_container_width=True)
             else:
                 empty_state("No evidence items have been added for this thesis yet.")
+
+            if not evidence_df.empty:
+                st.divider()
+                section_header("Edit or Delete Evidence")
+
+                evidence_options_df = fetch_dataframe(
+                    """
+                    SELECT
+                        id,
+                        COALESCE(title, source_name) AS title,
+                        source_type,
+                        source_publisher,
+                        url_or_citation,
+                        publication_date,
+                        COALESCE(evidence_summary, '') AS summary,
+                        key_takeaway,
+                        tags,
+                        credibility_score,
+                        materiality_score,
+                        thesis_alignment,
+                        created_at
+                    FROM evidence_items
+                    WHERE thesis_id = ?
+                    ORDER BY created_at DESC
+                    """,
+                    (thesis_id,)
+                )
+
+                evidence_ids = evidence_options_df["id"].tolist()
+                if st.session_state['selected_evidence_id'] not in evidence_ids:
+                    st.session_state['selected_evidence_id'] = evidence_ids[0] if evidence_ids else None
+
+                selected_evidence_id = st.selectbox(
+                    "Select Evidence Item",
+                    evidence_ids,
+                    index=evidence_ids.index(st.session_state['selected_evidence_id']) if st.session_state['selected_evidence_id'] in evidence_ids else 0,
+                    format_func=lambda ev_id: (
+                        f"#{ev_id} - {evidence_options_df[evidence_options_df['id'] == ev_id].iloc[0]['title']}"
+                    ),
+                    key="evidence_selector"
+                )
+                st.session_state['selected_evidence_id'] = selected_evidence_id
+
+                selected_df = evidence_options_df[evidence_options_df["id"] == st.session_state['selected_evidence_id']]
+
+                if not selected_df.empty:
+                    selected_evidence = selected_df.iloc[0]
+
+                    source_type_options = [""] + SOURCE_TYPE_OPTIONS
+                    source_type_default = selected_evidence['source_type'] if pd.notna(selected_evidence['source_type']) else ""
+                    source_type_index = source_type_options.index(source_type_default) if source_type_default in source_type_options else 0
+
+                    alignment_options = ["Bull", "Bear", "Neutral"]
+                    alignment_default = selected_evidence['thesis_alignment'] if pd.notna(selected_evidence['thesis_alignment']) else "Bull"
+                    alignment_index = alignment_options.index(alignment_default) if alignment_default in alignment_options else 0
+
+                    publication_date_default = datetime.now().date()
+                    if pd.notna(selected_evidence['publication_date']) and str(selected_evidence['publication_date']).strip() != "":
+                        publication_date_default = pd.to_datetime(selected_evidence['publication_date']).date()
+
+                    with st.form("edit_evidence_form"):
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            edit_title = st.text_input(
+                                "Title *",
+                                value=selected_evidence['title'] if pd.notna(selected_evidence['title']) else ""
+                            )
+
+                        with col2:
+                            edit_source_type = st.selectbox(
+                                "Source Type *",
+                                source_type_options,
+                                index=source_type_index
+                            )
+
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            edit_source_publisher = st.text_input(
+                                "Source / Publisher *",
+                                value=selected_evidence['source_publisher'] if pd.notna(selected_evidence['source_publisher']) else ""
+                            )
+
+                        with col2:
+                            edit_publication_date = st.date_input(
+                                "Publication Date",
+                                value=publication_date_default
+                            )
+
+                        edit_url = st.text_input(
+                            "URL (Optional)",
+                            value=selected_evidence['url_or_citation'] if pd.notna(selected_evidence['url_or_citation']) else ""
+                        )
+
+                        edit_summary = st.text_area(
+                            "Summary *",
+                            value=selected_evidence['summary'] if pd.notna(selected_evidence['summary']) else "",
+                            height=100
+                        )
+
+                        edit_key_takeaway = st.text_area(
+                            "Key Takeaway *",
+                            value=selected_evidence['key_takeaway'] if pd.notna(selected_evidence['key_takeaway']) else "",
+                            height=80
+                        )
+
+                        edit_tags = st.text_input(
+                            "Tags",
+                            value=selected_evidence['tags'] if pd.notna(selected_evidence['tags']) else ""
+                        )
+
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            edit_credibility_score = st.number_input(
+                                "Credibility Score (1-10)",
+                                min_value=1,
+                                max_value=10,
+                                value=int(selected_evidence['credibility_score']) if pd.notna(selected_evidence['credibility_score']) else 5
+                            )
+
+                        with col2:
+                            edit_materiality_score = st.number_input(
+                                "Materiality Score (1-10)",
+                                min_value=1,
+                                max_value=10,
+                                value=int(selected_evidence['materiality_score']) if pd.notna(selected_evidence['materiality_score']) else 5
+                            )
+
+                        edit_thesis_alignment = st.selectbox(
+                            "Thesis Alignment",
+                            alignment_options,
+                            index=alignment_index
+                        )
+
+                        edit_submitted = st.form_submit_button("Save Evidence Changes", use_container_width=True)
+
+                        if edit_submitted:
+                            if not edit_title.strip():
+                                st.error("Title is required.")
+                            elif not edit_source_type:
+                                st.error("Source Type is required.")
+                            elif not edit_source_publisher.strip():
+                                st.error("Source / Publisher is required.")
+                            elif not edit_summary.strip():
+                                st.error("Summary is required.")
+                            elif not edit_key_takeaway.strip():
+                                st.error("Key Takeaway is required.")
+                            else:
+                                run_query(
+                                    """
+                                    UPDATE evidence_items
+                                    SET source_name = ?,
+                                        title = ?,
+                                        source_type = ?,
+                                        source_publisher = ?,
+                                        url_or_citation = ?,
+                                        publication_date = ?,
+                                        evidence_summary = ?,
+                                        key_takeaway = ?,
+                                        tags = ?,
+                                        credibility_score = ?,
+                                        materiality_score = ?,
+                                        thesis_alignment = ?
+                                    WHERE id = ? AND thesis_id = ?
+                                    """,
+                                    (
+                                        edit_title.strip(),
+                                        edit_title.strip(),
+                                        edit_source_type,
+                                        edit_source_publisher.strip(),
+                                        edit_url.strip() if edit_url else None,
+                                        edit_publication_date.isoformat() if edit_publication_date else None,
+                                        edit_summary.strip(),
+                                        edit_key_takeaway.strip(),
+                                        edit_tags.strip() if edit_tags else None,
+                                        int(edit_credibility_score),
+                                        int(edit_materiality_score),
+                                        edit_thesis_alignment,
+                                        st.session_state['selected_evidence_id'],
+                                        thesis_id
+                                    )
+                                )
+
+                                event_created_by = thesis['reviewer'] if thesis['reviewer'] else "System"
+                                log_event(
+                                    thesis_id=thesis_id,
+                                    event_type=EVENT_EVIDENCE_UPDATED,
+                                    description=f"Evidence item updated: {edit_title.strip()}",
+                                    created_by=event_created_by,
+                                    version="1.0"
+                                )
+
+                                st.success("✓ Evidence item updated")
+                                st.session_state['selected_evidence_id'] = None
+                                st.rerun()
+
+                    st.write("")
+                    confirm = st.checkbox("Confirm deletion of this evidence item")
+                    if confirm:
+                        if st.button("Delete"):
+                            delete_title = selected_evidence['title'] if pd.notna(selected_evidence['title']) else f"Evidence #{st.session_state['selected_evidence_id']}"
+                            run_query(
+                                "DELETE FROM evidence_items WHERE id = ? AND thesis_id = ?",
+                                (st.session_state['selected_evidence_id'], thesis_id)
+                            )
+
+                            event_created_by = thesis['reviewer'] if thesis['reviewer'] else "System"
+                            log_event(
+                                thesis_id=thesis_id,
+                                event_type=EVENT_EVIDENCE_DELETED,
+                                description=f"Evidence item deleted: {delete_title}",
+                                created_by=event_created_by,
+                                version="1.0"
+                            )
+
+                            st.success("✓ Evidence item deleted")
+                            st.session_state['selected_evidence_id'] = None
+                            st.rerun()
         
         with tab3:
             # Add Business Assessment Form
