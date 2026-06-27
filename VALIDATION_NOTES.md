@@ -133,6 +133,23 @@ Track per-session verification windows or explicit event IDs to isolate in-sessi
 Status:
 Validated
 
+MVP-019-FRICTION-003
+
+Issue:
+Pillar scoring review_date persisted the current system date during historical validation instead of the intended evaluation date.
+
+Observed Evidence:
+B1 Business Quality was entered for Meta Platforms Validation Case 001 with intended review_date = 2012-05-18, but the saved database row showed review_date = 2026-06-27.
+
+Impact:
+Historical validation records may misrepresent when the analysis was intended to occur. With 11 required scoring pillars, this creates repetitive correction risk and weakens point-in-time audit fidelity.
+
+Candidate Improvement:
+When thesis validation_mode = 1, default pillar review_date to evidence_cutoff_date and allow analyst override. Also ensure historical min_value support is applied consistently to all scoring date widgets.
+
+Status:
+Validated
+
 ### Candidate Improvements
 
 MVP-019-CANDIDATE-001
