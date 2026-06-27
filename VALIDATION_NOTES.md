@@ -216,3 +216,24 @@ Hypothesis
 
 Related MVP:
 Post-MVP-019 rubric evolution (only after multiple historical validation cases confirm the pattern).
+
+### VALIDATION-INSIGHT-002: Three-Question Valuation Separation
+Emerged from:
+Meta Platforms 2012 Validation — I1 Scoring
+
+Observation:
+The Investment Assessment naturally separates three independent analytical questions:
+
+1. Is this a great business? (Business Assessment)
+2. Is this fairly priced today? (I1 – Valuation)
+3. Could an overpriced investment still produce excellent long-term returns? (Mnemosyne outcome reviews)
+Meta Platforms 2012 demonstrates that these questions must remain independent. The business received a strong Business Assessment (6.4/10), while the valuation received a materially lower score because the IPO price embedded future assumptions that had not been demonstrated by contemporaneous evidence.
+
+Constitutional Significance:
+A future positive investment outcome would not invalidate the original valuation assessment. Athena therefore preserves the distinction between decision quality and outcome quality exactly as required by the Charter's three-layer architecture.
+
+Status:
+Validated by first historical case.
+
+Related Charter Principle:
+Decision Quality ≠ Outcome Quality
