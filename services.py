@@ -1700,6 +1700,237 @@ def compute_hermes_inbox():
 
 
 # =============================================================================
+# ORCHESTRATION SERVICES — ATHENA
+# =============================================================================
+
+
+def get_athena_prebrief(thesis_id) -> dict:
+    """
+    Read-only orchestration service.
+    Coordinates Theia, Hermes, Themis, and Mnemosyne.
+    Produces a single governed briefing object.
+    Does not enforce, mutate, score, decide, or review.
+    """
+    thesis_df = fetch_dataframe(
+        """
+        SELECT id, company_name, status, validation_mode, evidence_cutoff_date, created_at
+        FROM theses
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (thesis_id,),
+    )
+
+    if thesis_df.empty:
+        return {
+            "lifecycle_state": {
+                "thesis_id": int(thesis_id),
+                "exists": False,
+            },
+            "governance_readiness": {
+                "eligible": False,
+                "completed": 0,
+                "required": 11,
+                "missing": [],
+            },
+            "evidence_summary": {
+                "repository_count": 0,
+                "staging_total": 0,
+                "staging_by_status": {},
+            },
+            "historical_context": {
+                "review_count": 0,
+                "horizons_present": [],
+                "outcome_type_counts": {},
+                "framework_review_eligible_count": 0,
+            },
+            "blockers": {
+                "theia": ["Thesis not found."],
+                "hermes": ["Thesis not found."],
+                "themis": ["Thesis not found."],
+                "mnemosyne": ["Thesis not found."],
+            },
+            "next_action": "Resolve thesis identifier before governance workflow continues.",
+            "provenance": {
+                "lifecycle_state": "Themis",
+                "governance_readiness": "Themis",
+                "evidence_summary": "Theia",
+                "historical_context": "Mnemosyne",
+                "blockers": {
+                    "theia": ["evidence_staging"],
+                    "hermes": ["compute_hermes_inbox"],
+                    "themis": ["validate_decision_gate"],
+                    "mnemosyne": ["thesis_reviews"],
+                },
+                "next_action": "Hermes",
+            },
+        }
+
+    thesis = thesis_df.iloc[0]
+    governance = validate_decision_gate(int(thesis_id))
+
+    decision_count_df = fetch_dataframe(
+        "SELECT COUNT(*) AS decision_count FROM decision_logs WHERE thesis_id = ?",
+        (thesis_id,),
+    )
+    decision_count = int(decision_count_df.iloc[0]["decision_count"]) if not decision_count_df.empty else 0
+
+    evidence_count_df = fetch_dataframe(
+        "SELECT COUNT(*) AS repository_count FROM evidence_items WHERE thesis_id = ?",
+        (thesis_id,),
+    )
+    repository_count = int(evidence_count_df.iloc[0]["repository_count"]) if not evidence_count_df.empty else 0
+
+    staging_counts_df = fetch_dataframe(
+        """
+        SELECT intake_status, COUNT(*) AS status_count
+        FROM evidence_staging
+        WHERE thesis_id = ?
+        GROUP BY intake_status
+        """,
+        (thesis_id,),
+    )
+    staging_by_status = {}
+    if not staging_counts_df.empty:
+        for _, row in staging_counts_df.iterrows():
+            status_key = str(row["intake_status"]).strip() if pd.notna(row["intake_status"]) else "Unknown"
+            staging_by_status[status_key] = int(row["status_count"])
+    staging_total = int(sum(staging_by_status.values()))
+
+    latest_publication_df = fetch_dataframe(
+        "SELECT MAX(publication_date) AS latest_publication_date FROM evidence_items WHERE thesis_id = ?",
+        (thesis_id,),
+    )
+    latest_publication_date = None
+    if not latest_publication_df.empty and pd.notna(latest_publication_df.iloc[0]["latest_publication_date"]):
+        latest_publication_date = str(latest_publication_df.iloc[0]["latest_publication_date"])
+
+    reviews_df = fetch_dataframe(
+        """
+        SELECT review_horizon, outcome_attribution_type, framework_review_eligible, review_date
+        FROM thesis_reviews
+        WHERE thesis_id = ?
+        """,
+        (thesis_id,),
+    )
+    review_count = int(len(reviews_df))
+    horizons_present = []
+    outcome_type_counts = {}
+    framework_review_eligible_count = 0
+    latest_review_date = None
+    if not reviews_df.empty:
+        horizons_present = sorted(
+            [
+                str(value).strip()
+                for value in reviews_df["review_horizon"].dropna().tolist()
+                if str(value).strip()
+            ]
+        )
+        outcome_counts_series = (
+            reviews_df["outcome_attribution_type"].fillna("Unknown").astype(str).str.strip().value_counts()
+        )
+        outcome_type_counts = {str(k): int(v) for k, v in outcome_counts_series.to_dict().items()}
+        framework_review_eligible_count = int(reviews_df["framework_review_eligible"].fillna(0).astype(int).sum())
+        if reviews_df["review_date"].dropna().tolist():
+            latest_review_date = str(pd.to_datetime(reviews_df["review_date"]).max().date())
+
+    hermes_tasks = [
+        task
+        for task in compute_hermes_inbox()
+        if task.get("thesis_id") is not None and int(task.get("thesis_id")) == int(thesis_id)
+    ]
+
+    blockers_themis = []
+    for item in governance["missing"]:
+        blockers_themis.append(f"{item['pillar_id']} — {item['label']}")
+
+    blockers_theia = []
+    pending_count = staging_by_status.get(INTAKE_STATUS_PENDING, 0)
+    reviewed_count = staging_by_status.get(INTAKE_STATUS_REVIEWED, 0)
+    confirmed_count = staging_by_status.get(INTAKE_STATUS_CONFIRMED, 0)
+    if pending_count > 0:
+        blockers_theia.append(f"{pending_count} staged evidence item(s) pending review.")
+    if reviewed_count > 0:
+        blockers_theia.append(f"{reviewed_count} staged evidence item(s) reviewed but not yet confirmed/rejected.")
+    if confirmed_count > 0:
+        blockers_theia.append(f"{confirmed_count} staged evidence item(s) confirmed and awaiting promotion.")
+
+    blockers_hermes = [task["task_type"] for task in hermes_tasks]
+
+    blockers_mnemosyne = []
+    if decision_count > 0 and review_count == 0:
+        blockers_mnemosyne.append("No thesis review recorded for an existing governed decision.")
+
+    next_action = "No immediate governed action from Hermes."
+    if hermes_tasks:
+        primary_task = sorted(hermes_tasks, key=lambda item: int(item["priority"]))[0]
+        next_action = primary_task.get("action") or primary_task.get("task_type")
+
+    lifecycle_state = {
+        "thesis_id": int(thesis["id"]),
+        "company_name": str(thesis["company_name"]).strip() if pd.notna(thesis["company_name"]) else "Unassigned",
+        "status": str(thesis["status"]).strip() if pd.notna(thesis["status"]) and str(thesis["status"]).strip() else "Unspecified",
+        "decision_recorded": decision_count > 0,
+        "validation_configuration_locked": decision_count > 0,
+        "validation_mode": int(thesis["validation_mode"]) == 1 if pd.notna(thesis["validation_mode"]) else False,
+        "evidence_cutoff_date": str(thesis["evidence_cutoff_date"]).strip() if pd.notna(thesis["evidence_cutoff_date"]) and str(thesis["evidence_cutoff_date"]).strip() else None,
+        "created_at": str(thesis["created_at"]).strip() if pd.notna(thesis["created_at"]) and str(thesis["created_at"]).strip() else None,
+    }
+
+    governance_readiness = {
+        "eligible": bool(governance["eligible"]),
+        "completed": int(governance["completed"]),
+        "required": int(governance["required"]),
+        "missing": governance["missing"],
+        "validated_at": governance["validated_at"],
+    }
+
+    evidence_summary = {
+        "repository_count": repository_count,
+        "staging_total": staging_total,
+        "staging_by_status": staging_by_status,
+        "latest_repository_publication_date": latest_publication_date,
+    }
+
+    historical_context = {
+        "review_count": review_count,
+        "horizons_present": horizons_present,
+        "outcome_type_counts": outcome_type_counts,
+        "framework_review_eligible_count": framework_review_eligible_count,
+        "latest_review_date": latest_review_date,
+    }
+
+    blockers = {
+        "theia": blockers_theia,
+        "hermes": blockers_hermes,
+        "themis": blockers_themis,
+        "mnemosyne": blockers_mnemosyne,
+    }
+
+    return {
+        "lifecycle_state": lifecycle_state,
+        "governance_readiness": governance_readiness,
+        "evidence_summary": evidence_summary,
+        "historical_context": historical_context,
+        "blockers": blockers,
+        "next_action": next_action,
+        "provenance": {
+            "lifecycle_state": "Themis",
+            "governance_readiness": "Themis",
+            "evidence_summary": "Theia",
+            "historical_context": "Mnemosyne",
+            "blockers": {
+                "theia": ["evidence_staging"],
+                "hermes": ["compute_hermes_inbox"],
+                "themis": ["validate_decision_gate"],
+                "mnemosyne": ["thesis_reviews"],
+            },
+            "next_action": "Hermes",
+        },
+    }
+
+
+# =============================================================================
 # AUDIT / EVENT SERVICES
 # =============================================================================
 

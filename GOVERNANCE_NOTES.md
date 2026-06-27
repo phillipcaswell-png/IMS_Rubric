@@ -37,3 +37,8 @@ Minimum regression criteria:
 This regression is not a full re-execution of the validation case.
 It is a constitutional smoke test against the five enforcement
 mechanisms that v1.0.0 validated.
+
+MVP-020 Athena Orchestration Principle:
+Athena coordinates constitutional subsystems. It contributes organization, not judgment. Every section of the AthenaPreBrief has an owning subsystem. Athena contributes zero constitutional authority of its own.
+
+get_athena_prebrief(thesis_id) is read-only. It may never write, enforce, score, decide, or mutate any governed record.

@@ -19,6 +19,7 @@ from services import (
     build_thesis_json,
     validate_decision_gate,
     compute_hermes_inbox,
+    get_athena_prebrief,
     INTAKE_STATUS_ARCHIVED,
     create_thesis,
     stage_evidence,
@@ -823,6 +824,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             # Get overview metrics
             metrics = get_overview_metrics(thesis_id)
             validation_locked = is_validation_configuration_locked(thesis_id)
+            athena_prebrief = get_athena_prebrief(thesis_id)
             
             # Section 1: Evaluation Summary
             section_header("Evaluation Summary")
@@ -845,6 +847,86 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 st.info("Validation mode and evidence cutoff date are immutable after the first decision record. Use a new thesis for a different historical scenario.")
             
             summary_field("Decision Question", thesis['decision_question'])
+
+            st.divider()
+            section_header("Athena Pre-Brief")
+
+            lifecycle_state = athena_prebrief.get("lifecycle_state", {})
+            governance_readiness = athena_prebrief.get("governance_readiness", {})
+            evidence_summary_data = athena_prebrief.get("evidence_summary", {})
+            historical_context_data = athena_prebrief.get("historical_context", {})
+            blockers_data = athena_prebrief.get("blockers", {})
+            provenance_data = athena_prebrief.get("provenance", {})
+
+            st.markdown("**Lifecycle State**")
+            summary_field("Status", lifecycle_state.get("status", "—"))
+            summary_field("Decision Recorded", "Yes" if lifecycle_state.get("decision_recorded") else "No")
+            summary_field("Validation Configuration Locked", "Yes" if lifecycle_state.get("validation_configuration_locked") else "No")
+
+            st.markdown("**Governance Readiness**")
+            summary_field("Eligible", "Yes" if governance_readiness.get("eligible") else "No")
+            summary_field(
+                "Completion",
+                f"{governance_readiness.get('completed', 0)} / {governance_readiness.get('required', 11)}",
+            )
+            missing_requirements = governance_readiness.get("missing", [])
+            if missing_requirements:
+                st.write("Missing Requirements:")
+                for item in missing_requirements:
+                    st.write(f"- {item['pillar_id']} — {item['label']}")
+            else:
+                st.write("Missing Requirements: —")
+
+            st.markdown("**Evidence Summary**")
+            summary_field("Repository Evidence Count", evidence_summary_data.get("repository_count", 0))
+            summary_field("Staging Total", evidence_summary_data.get("staging_total", 0))
+            summary_field(
+                "Latest Repository Publication Date",
+                evidence_summary_data.get("latest_repository_publication_date") or "—",
+            )
+            staging_by_status_data = evidence_summary_data.get("staging_by_status", {})
+            if staging_by_status_data:
+                st.write("Staging by Status:")
+                for status_name, status_count in staging_by_status_data.items():
+                    st.write(f"- {status_name}: {status_count}")
+            else:
+                st.write("Staging by Status: —")
+
+            st.markdown("**Historical Context**")
+            summary_field("Review Count", historical_context_data.get("review_count", 0))
+            summary_field(
+                "Framework Review Consideration Eligible Count",
+                historical_context_data.get("framework_review_eligible_count", 0),
+            )
+            summary_field("Latest Review Date", historical_context_data.get("latest_review_date") or "—")
+            horizons_present_data = historical_context_data.get("horizons_present", [])
+            summary_field(
+                "Horizons Present",
+                ", ".join(horizons_present_data) if horizons_present_data else "—",
+            )
+
+            st.markdown("**Blockers**")
+            for subsystem_name in ["theia", "hermes", "themis", "mnemosyne"]:
+                subsystem_blockers = blockers_data.get(subsystem_name, [])
+                if subsystem_blockers:
+                    st.write(f"- {subsystem_name}:")
+                    for blocker_item in subsystem_blockers:
+                        st.write(f"  - {blocker_item}")
+                else:
+                    st.write(f"- {subsystem_name}: none")
+
+            st.markdown("**Next Governed Action**")
+            st.write(athena_prebrief.get("next_action", "—"))
+
+            st.markdown("**Provenance**")
+            summary_field("Lifecycle State Owner", provenance_data.get("lifecycle_state", "—"))
+            summary_field("Governance Readiness Owner", provenance_data.get("governance_readiness", "—"))
+            summary_field("Evidence Summary Owner", provenance_data.get("evidence_summary", "—"))
+            summary_field("Historical Context Owner", provenance_data.get("historical_context", "—"))
+            summary_field("Next Action Owner", provenance_data.get("next_action", "—"))
+
+            with st.expander("Raw Pre-Brief Object"):
+                st.json(athena_prebrief)
             
             st.divider()
             
