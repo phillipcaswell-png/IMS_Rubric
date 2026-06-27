@@ -773,59 +773,295 @@ with st.sidebar:
 # Main content area
 if st.session_state['current_view'] == 'Dashboard':
     st.header("Dashboard")
-    
-    # Status metrics
-    total_df = fetch_dataframe("SELECT COUNT(*) as count FROM theses")
-    total_count = total_df['count'].iloc[0]
-    
-    draft_df = fetch_dataframe("SELECT COUNT(*) as count FROM theses WHERE status = ?", (STATUS_DRAFT,))
-    draft_count = draft_df['count'].iloc[0]
-    
-    evidence_df = fetch_dataframe("SELECT COUNT(*) as count FROM theses WHERE status = ?", (STATUS_EVIDENCE_COLLECTION,))
-    evidence_count = evidence_df['count'].iloc[0]
-    
-    scoring_df = fetch_dataframe("SELECT COUNT(*) as count FROM theses WHERE status = ?", (STATUS_SCORING,))
-    scoring_count = scoring_df['count'].iloc[0]
-    
-    monitoring_df = fetch_dataframe("SELECT COUNT(*) as count FROM theses WHERE status = ?", (STATUS_ACTIVE_MONITORING,))
-    monitoring_count = monitoring_df['count'].iloc[0]
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        metric_card("Total Theses", total_count)
-    with col2:
-        metric_card("Draft", draft_count)
-    with col3:
-        metric_card("Evidence Collection", evidence_count)
-    with col4:
-        metric_card("Scoring", scoring_count)
-    with col5:
-        metric_card("Active Monitoring", monitoring_count)
-    
-    # Theses table
+
+    theses_df = fetch_dataframe(
+        """
+        SELECT id, company_name, ticker, status
+        FROM theses
+        ORDER BY company_name ASC
+        """
+    )
+
+    latest_decision_df = fetch_dataframe(
+        """
+        SELECT d1.*
+        FROM decision_logs d1
+        JOIN (
+            SELECT thesis_id, MAX(id) AS max_id
+            FROM decision_logs
+            GROUP BY thesis_id
+        ) latest
+            ON latest.thesis_id = d1.thesis_id
+           AND latest.max_id = d1.id
+        """
+    )
+
+    if latest_decision_df.empty:
+        latest_decision_by_thesis_id = {}
+    else:
+        latest_decision_by_thesis_id = {
+            int(row["thesis_id"]): row
+            for _, row in latest_decision_df.iterrows()
+        }
+
+    business_score_df = fetch_dataframe(
+        """
+        SELECT thesis_id, ROUND(AVG(score), 1) AS avg_business_score
+        FROM pillar_scores
+        WHERE pillar_id LIKE 'B%' AND score IS NOT NULL
+        GROUP BY thesis_id
+        """
+    )
+    business_score_by_thesis_id = {
+        int(row["thesis_id"]): float(row["avg_business_score"])
+        for _, row in business_score_df.iterrows()
+    }
+
+    investment_score_df = fetch_dataframe(
+        """
+        SELECT thesis_id, ROUND(AVG(score), 1) AS avg_investment_score
+        FROM pillar_scores
+        WHERE pillar_id LIKE 'I%' AND score IS NOT NULL
+        GROUP BY thesis_id
+        """
+    )
+    investment_score_by_thesis_id = {
+        int(row["thesis_id"]): float(row["avg_investment_score"])
+        for _, row in investment_score_df.iterrows()
+    }
+
+    framework_eligible_df = fetch_dataframe(
+        """
+        SELECT DISTINCT thesis_id
+        FROM thesis_reviews
+        WHERE framework_review_eligible = 1
+        """
+    )
+    framework_eligible_ids = set(framework_eligible_df["thesis_id"].astype(int).tolist()) if not framework_eligible_df.empty else set()
+
+    # Build once and reuse across sections.
+    gate_results_by_thesis_id = {}
+    for _, thesis_row in theses_df.iterrows():
+        tid = int(thesis_row["id"])
+        gate_results_by_thesis_id[tid] = validate_decision_gate(tid)
+
+    today_date = datetime.now().date()
+
+    def get_priority_and_reason(thesis_id):
+        latest_decision_row = latest_decision_by_thesis_id.get(thesis_id)
+        gate_result = gate_results_by_thesis_id[thesis_id]
+
+        if thesis_id in framework_eligible_ids:
+            return 1, "Framework Review Consideration Eligible"
+
+        if latest_decision_row is not None and pd.notna(latest_decision_row["next_review_date"]):
+            next_review_date = pd.to_datetime(latest_decision_row["next_review_date"]).date()
+            if next_review_date < today_date:
+                return 2, "Next review date past due"
+
+        if latest_decision_row is None:
+            return 3, "No decision recorded"
+
+        if not gate_result["eligible"]:
+            return 4, "Governance gate incomplete"
+
+        return None, "—"
+
     st.divider()
-    section_header("All Theses")
-    theses_df = fetch_dataframe("SELECT id, company_name, ticker, status, drl, primary_horizon, reviewer FROM theses ORDER BY company_name")
-    if not theses_df.empty:
-        st.dataframe(theses_df, use_container_width=True)
+    section_header("Executive Summary")
+
+    active_theses_count = int(
+        theses_df[theses_df["status"].fillna("") != STATUS_CLOSED]["id"].count()
+    )
+    decision_eligible_count = sum(
+        1 for gate_result in gate_results_by_thesis_id.values() if gate_result["eligible"]
+    )
+
+    needs_review_count = 0
+    for _, decision_row in latest_decision_df.iterrows():
+        if pd.notna(decision_row["next_review_date"]):
+            if pd.to_datetime(decision_row["next_review_date"]).date() < today_date:
+                needs_review_count += 1
+
+    framework_review_eligible_count = len(framework_eligible_ids)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        metric_card("Active Theses", active_theses_count)
+    with col2:
+        metric_card("Decision Eligible", decision_eligible_count)
+    with col3:
+        metric_card("Needs Review", needs_review_count)
+    with col4:
+        metric_card("Framework Review Consideration Eligible", framework_review_eligible_count)
+
+    st.divider()
+    section_header("Portfolio Table")
+
+    portfolio_rows = []
+    for _, thesis_row in theses_df.iterrows():
+        tid = int(thesis_row["id"])
+        latest_decision_row = latest_decision_by_thesis_id.get(tid)
+        priority_value, reason_text = get_priority_and_reason(tid)
+        action_required = reason_text if priority_value is not None else "—"
+
+        recommendation_value = "—"
+        next_review_value = "—"
+        if latest_decision_row is not None:
+            recommendation_value = latest_decision_row["recommendation"] if pd.notna(latest_decision_row["recommendation"]) and str(latest_decision_row["recommendation"]).strip() else "—"
+            next_review_value = latest_decision_row["next_review_date"] if pd.notna(latest_decision_row["next_review_date"]) and str(latest_decision_row["next_review_date"]).strip() else "—"
+
+        business_score_value = "—"
+        if tid in business_score_by_thesis_id:
+            business_score_value = f"{business_score_by_thesis_id[tid]:.1f}"
+
+        investment_score_value = "—"
+        if tid in investment_score_by_thesis_id:
+            investment_score_value = f"{investment_score_by_thesis_id[tid]:.1f}"
+
+        portfolio_rows.append(
+            {
+                "thesis_id": tid,
+                "Company": thesis_row["company_name"],
+                "Ticker": thesis_row["ticker"] if pd.notna(thesis_row["ticker"]) and str(thesis_row["ticker"]).strip() else "—",
+                "Status": thesis_row["status"] if pd.notna(thesis_row["status"]) and str(thesis_row["status"]).strip() else "—",
+                "Recommendation": recommendation_value,
+                "Business Score": business_score_value,
+                "Investment Score": investment_score_value,
+                "Next Review": next_review_value,
+                "Action Required": action_required,
+            }
+        )
+
+    if portfolio_rows:
+        portfolio_display_df = pd.DataFrame(portfolio_rows)[
+            [
+                "Company",
+                "Ticker",
+                "Status",
+                "Recommendation",
+                "Business Score",
+                "Investment Score",
+                "Next Review",
+                "Action Required",
+            ]
+        ]
+        st.dataframe(portfolio_display_df, use_container_width=True)
+
+        st.caption("Open Thesis")
+        for row in portfolio_rows:
+            label = f"View {row['Company']}"
+            if st.button(label, key=f"dashboard_open_{row['thesis_id']}"):
+                st.session_state['selected_thesis_id'] = row['thesis_id']
+                st.session_state['current_view'] = 'Thesis Detail'
+                st.rerun()
     else:
         empty_state("No theses found. Click '➕ New Thesis' to create one.")
-    
-    # Recent Activity
+
     st.divider()
-    section_header("Recent Activity")
-    activity_df = fetch_dataframe(
-        """SELECT t.company_name as Company, e.event_type as 'Event Type', 
-           e.event_description as Description, e.created_by as 'Created By', 
-           e.created_at as 'Created At'
-        FROM thesis_events e
-        JOIN theses t ON e.thesis_id = t.id
-        ORDER BY e.created_at DESC LIMIT 10"""
-    )
-    if not activity_df.empty:
-        st.dataframe(activity_df, use_container_width=True)
+    section_header("Governance Health")
+
+    governance_rows = []
+    for _, thesis_row in theses_df.iterrows():
+        tid = int(thesis_row["id"])
+        gate_result = gate_results_by_thesis_id[tid]
+        latest_decision_row = latest_decision_by_thesis_id.get(tid)
+
+        if gate_result["eligible"]:
+            gate_status = "🟢 Eligible"
+            gate_sort = 1
+        else:
+            gate_status = "🔴 Blocked"
+            gate_sort = 0
+
+        last_decision_date = "—"
+        next_review_date = "—"
+        if latest_decision_row is not None:
+            if pd.notna(latest_decision_row["created_at"]) and str(latest_decision_row["created_at"]).strip():
+                last_decision_date = str(latest_decision_row["created_at"])
+            if pd.notna(latest_decision_row["next_review_date"]) and str(latest_decision_row["next_review_date"]).strip():
+                next_review_date = str(latest_decision_row["next_review_date"])
+
+        governance_rows.append(
+            {
+                "Company": thesis_row["company_name"],
+                "Gate Status": gate_status,
+                "Completed": f"{gate_result['completed']} / 11",
+                "Last Decision Date": last_decision_date,
+                "Next Review Date": next_review_date,
+                "_gate_sort": gate_sort,
+            }
+        )
+
+    if governance_rows:
+        governance_df = pd.DataFrame(governance_rows).sort_values(
+            by=["_gate_sort", "Company"],
+            ascending=[True, True]
+        )
+        governance_display_df = governance_df[
+            ["Company", "Gate Status", "Completed", "Last Decision Date", "Next Review Date"]
+        ]
+        st.dataframe(governance_display_df, use_container_width=True)
     else:
-        empty_state("No recent activity.")
+        empty_state("No theses available.")
+
+    st.divider()
+    section_header("Historical Review Summary")
+
+    outcome_distribution_df = fetch_dataframe(
+        """
+        SELECT outcome_attribution_type AS 'Outcome Type', COUNT(*) AS Count
+        FROM thesis_reviews
+        GROUP BY outcome_attribution_type
+        ORDER BY outcome_attribution_type
+        """
+    )
+    if not outcome_distribution_df.empty:
+        st.dataframe(outcome_distribution_df, use_container_width=True)
+    else:
+        empty_state("No thesis reviews recorded yet.")
+
+    framework_theses_df = fetch_dataframe(
+        """
+        SELECT t.company_name AS Company, tr.review_horizon AS 'Review Horizon', tr.review_date AS 'Review Date'
+        FROM thesis_reviews tr
+        JOIN theses t ON t.id = tr.thesis_id
+        WHERE tr.framework_review_eligible = 1
+        ORDER BY t.company_name ASC, tr.review_date DESC
+        """
+    )
+    if not framework_theses_df.empty:
+        st.dataframe(framework_theses_df, use_container_width=True)
+    else:
+        empty_state("No theses currently flagged for framework review consideration.")
+
+    st.divider()
+    section_header("Watchlist / Review Queue")
+
+    watchlist_rows = []
+    for _, thesis_row in theses_df.iterrows():
+        tid = int(thesis_row["id"])
+        priority_value, reason_text = get_priority_and_reason(tid)
+        if priority_value is None:
+            continue
+
+        watchlist_rows.append(
+            {
+                "Priority": priority_value,
+                "Company": thesis_row["company_name"],
+                "Ticker": thesis_row["ticker"] if pd.notna(thesis_row["ticker"]) and str(thesis_row["ticker"]).strip() else "—",
+                "Reason": reason_text,
+            }
+        )
+
+    if watchlist_rows:
+        watchlist_df = pd.DataFrame(watchlist_rows).sort_values(
+            by=["Priority", "Company"],
+            ascending=[True, True]
+        )
+        st.dataframe(watchlist_df, use_container_width=True)
+    else:
+        st.info("No items require immediate attention.")
 
 elif st.session_state['current_view'] == 'New Thesis':
     st.header("Create New Thesis")
