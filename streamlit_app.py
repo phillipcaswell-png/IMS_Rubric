@@ -74,6 +74,11 @@ REVIEW_HORIZON_OPTIONS = [
 
 MNEMOSYNE_MINIMUM_REVIEW_VOLUME = 10
 
+HERMES_PRIORITY_CRITICAL = 1
+HERMES_PRIORITY_HIGH = 2
+HERMES_PRIORITY_MEDIUM = 3
+HERMES_PRIORITY_LOW = 4
+
 # Status Values
 STATUS_DRAFT = "Draft"
 STATUS_EVIDENCE_COLLECTION = "Evidence Collection"
@@ -859,6 +864,195 @@ def validate_decision_gate(thesis_id):
     }
 
 
+def compute_hermes_inbox():
+    """Compute a read-only workflow inbox from governed data sources."""
+    tasks = []
+
+    framework_review_df = fetch_dataframe(
+        """
+        SELECT
+            tr.thesis_id,
+            t.company_name,
+            MAX(tr.review_date) AS due_date
+        FROM thesis_reviews tr
+        LEFT JOIN theses t ON t.id = tr.thesis_id
+        WHERE tr.framework_review_eligible = 1
+        GROUP BY tr.thesis_id, t.company_name
+        """
+    )
+    for _, row in framework_review_df.iterrows():
+        tasks.append(
+            {
+                "task_type": "Framework Review Consideration Eligible",
+                "priority": HERMES_PRIORITY_CRITICAL,
+                "source": "thesis_reviews",
+                "thesis_id": int(row["thesis_id"]) if pd.notna(row["thesis_id"]) else None,
+                "company_name": str(row["company_name"]).strip() if pd.notna(row["company_name"]) and str(row["company_name"]).strip() else "Unassigned",
+                "description": "Framework review consideration is eligible.",
+                "due_date": str(row["due_date"]).strip() if pd.notna(row["due_date"]) and str(row["due_date"]).strip() else None,
+                "action": "Review historical observations.",
+            }
+        )
+
+    review_past_due_df = fetch_dataframe(
+        """
+        SELECT
+            d.thesis_id,
+            t.company_name,
+            d.next_review_date
+        FROM decision_logs d
+        JOIN (
+            SELECT thesis_id, MAX(id) AS max_id
+            FROM decision_logs
+            GROUP BY thesis_id
+        ) latest
+            ON latest.thesis_id = d.thesis_id
+           AND latest.max_id = d.id
+        LEFT JOIN theses t ON t.id = d.thesis_id
+        WHERE d.next_review_date IS NOT NULL
+          AND date(d.next_review_date) < date('now')
+        """
+    )
+    for _, row in review_past_due_df.iterrows():
+        tasks.append(
+            {
+                "task_type": "Review Past Due",
+                "priority": HERMES_PRIORITY_HIGH,
+                "source": "decision_logs",
+                "thesis_id": int(row["thesis_id"]) if pd.notna(row["thesis_id"]) else None,
+                "company_name": str(row["company_name"]).strip() if pd.notna(row["company_name"]) and str(row["company_name"]).strip() else "Unassigned",
+                "description": "Next review date is past due.",
+                "due_date": str(row["next_review_date"]).strip() if pd.notna(row["next_review_date"]) and str(row["next_review_date"]).strip() else None,
+                "action": "Perform thesis review.",
+            }
+        )
+
+    pending_staging_df = fetch_dataframe(
+        """
+        SELECT
+            es.staging_uuid,
+            es.thesis_id,
+            t.company_name,
+            es.source_name,
+            es.created_at
+        FROM evidence_staging es
+        LEFT JOIN theses t ON t.id = es.thesis_id
+        WHERE es.intake_status = ?
+        ORDER BY es.created_at ASC
+        """,
+        (INTAKE_STATUS_PENDING,)
+    )
+    for _, row in pending_staging_df.iterrows():
+        source_name = str(row["source_name"]).strip() if pd.notna(row["source_name"]) and str(row["source_name"]).strip() else "Unnamed Source"
+        tasks.append(
+            {
+                "task_type": "Evidence Awaiting Review",
+                "priority": HERMES_PRIORITY_HIGH,
+                "source": "evidence_staging",
+                "thesis_id": int(row["thesis_id"]) if pd.notna(row["thesis_id"]) else None,
+                "company_name": str(row["company_name"]).strip() if pd.notna(row["company_name"]) and str(row["company_name"]).strip() else "Unassigned",
+                "description": f"Pending staged evidence: {source_name}.",
+                "due_date": str(row["created_at"]).strip() if pd.notna(row["created_at"]) and str(row["created_at"]).strip() else None,
+                "action": "Review staged evidence.",
+            }
+        )
+
+    confirmed_staging_df = fetch_dataframe(
+        """
+        SELECT
+            es.staging_uuid,
+            es.thesis_id,
+            t.company_name,
+            es.source_name,
+            es.review_date
+        FROM evidence_staging es
+        LEFT JOIN theses t ON t.id = es.thesis_id
+        WHERE es.intake_status = ?
+        ORDER BY es.review_date ASC
+        """,
+        (INTAKE_STATUS_CONFIRMED,)
+    )
+    for _, row in confirmed_staging_df.iterrows():
+        source_name = str(row["source_name"]).strip() if pd.notna(row["source_name"]) and str(row["source_name"]).strip() else "Unnamed Source"
+        tasks.append(
+            {
+                "task_type": "Evidence Awaiting Promotion",
+                "priority": HERMES_PRIORITY_HIGH,
+                "source": "evidence_staging",
+                "thesis_id": int(row["thesis_id"]) if pd.notna(row["thesis_id"]) else None,
+                "company_name": str(row["company_name"]).strip() if pd.notna(row["company_name"]) and str(row["company_name"]).strip() else "Unassigned",
+                "description": f"Confirmed staged evidence pending promotion: {source_name}.",
+                "due_date": str(row["review_date"]).strip() if pd.notna(row["review_date"]) and str(row["review_date"]).strip() else None,
+                "action": "Promote confirmed evidence.",
+            }
+        )
+
+    no_decision_df = fetch_dataframe(
+        """
+        SELECT
+            t.id AS thesis_id,
+            t.company_name
+        FROM theses t
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM decision_logs d
+            WHERE d.thesis_id = t.id
+        )
+        ORDER BY t.company_name ASC
+        """
+    )
+    for _, row in no_decision_df.iterrows():
+        tasks.append(
+            {
+                "task_type": "Decision Not Recorded",
+                "priority": HERMES_PRIORITY_MEDIUM,
+                "source": "decision_logs",
+                "thesis_id": int(row["thesis_id"]) if pd.notna(row["thesis_id"]) else None,
+                "company_name": str(row["company_name"]).strip() if pd.notna(row["company_name"]) and str(row["company_name"]).strip() else "Unassigned",
+                "description": "No governed decision record found for this thesis.",
+                "due_date": None,
+                "action": "Complete governed decision.",
+            }
+        )
+
+    thesis_candidates_df = fetch_dataframe(
+        """
+        SELECT id, company_name
+        FROM theses
+        ORDER BY company_name ASC
+        """
+    )
+    for _, row in thesis_candidates_df.iterrows():
+        thesis_id = int(row["id"])
+        gate_result = validate_decision_gate(thesis_id)
+        if gate_result["eligible"]:
+            continue
+
+        missing_count = len(gate_result["missing"])
+        tasks.append(
+            {
+                "task_type": "Governance Incomplete",
+                "priority": HERMES_PRIORITY_LOW,
+                "source": "validate_decision_gate",
+                "thesis_id": thesis_id,
+                "company_name": str(row["company_name"]).strip() if pd.notna(row["company_name"]) and str(row["company_name"]).strip() else "Unassigned",
+                "description": f"Governance gate incomplete with {missing_count} missing requirement(s).",
+                "due_date": None,
+                "action": "Complete missing governance requirements.",
+            }
+        )
+
+    def _sort_key(item):
+        due_date_value = item["due_date"] if item["due_date"] else "9999-12-31"
+        return (
+            int(item["priority"]),
+            due_date_value,
+            str(item["company_name"]).lower(),
+        )
+
+    return sorted(tasks, key=_sort_key)
+
+
 # =============================================================================
 # IMS UI COMPONENT LIBRARY
 # =============================================================================
@@ -920,6 +1114,10 @@ with st.sidebar:
     
     if st.button("➕ New Thesis"):
         st.session_state['current_view'] = 'New Thesis'
+        st.session_state['selected_thesis_id'] = None
+
+    if st.button("📬 Hermes — Workflow Inbox"):
+        st.session_state['current_view'] = 'Hermes Workflow Inbox'
         st.session_state['selected_thesis_id'] = None
     
     st.divider()
@@ -1236,6 +1434,7 @@ if st.session_state['current_view'] == 'Dashboard':
         st.dataframe(watchlist_df, use_container_width=True)
     else:
         st.info("No items require immediate attention.")
+    st.info("Workflow coordination is available in 📬 Hermes — Workflow Inbox.")
 
     st.divider()
     section_header("Mnemosyne — Historical Observations")
@@ -1326,6 +1525,49 @@ if st.session_state['current_view'] == 'Dashboard':
         "• Generated:\n"
         f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
+
+elif st.session_state['current_view'] == 'Hermes Workflow Inbox':
+    st.header("📬 Hermes — Workflow Inbox")
+
+    inbox_tasks = compute_hermes_inbox()
+    priority_one_count = sum(1 for task in inbox_tasks if task["priority"] == HERMES_PRIORITY_CRITICAL)
+    priority_two_count = sum(1 for task in inbox_tasks if task["priority"] == HERMES_PRIORITY_HIGH)
+    priority_three_count = sum(1 for task in inbox_tasks if task["priority"] == HERMES_PRIORITY_MEDIUM)
+    priority_four_count = sum(1 for task in inbox_tasks if task["priority"] == HERMES_PRIORITY_LOW)
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        metric_card("Total Tasks", len(inbox_tasks))
+    with col2:
+        metric_card("Priority 1", priority_one_count)
+    with col3:
+        metric_card("Priority 2", priority_two_count)
+    with col4:
+        metric_card("Priority 3", priority_three_count)
+    with col5:
+        metric_card("Priority 4", priority_four_count)
+
+    if inbox_tasks:
+        inbox_rows = []
+        for task in inbox_tasks:
+            inbox_rows.append(
+                {
+                    "Priority": int(task["priority"]),
+                    "Source": task["source"],
+                    "Company": task["company_name"],
+                    "Task": task["task_type"],
+                    "Due Date": task["due_date"] if task["due_date"] else "—",
+                    "Action": task["action"],
+                }
+            )
+
+        inbox_display_df = pd.DataFrame(inbox_rows).sort_values(
+            by=["Priority", "Due Date", "Company"],
+            ascending=[True, True, True],
+        )
+        st.dataframe(inbox_display_df, use_container_width=True)
+    else:
+        st.info("No workflow items currently require analyst attention.")
 
 elif st.session_state['current_view'] == 'New Thesis':
     st.header("Create New Thesis")
