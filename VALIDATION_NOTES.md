@@ -69,6 +69,20 @@ Operational Impact:
 Blocked-event verification query returned historical rows even when no new
 blocked promotions were generated during this run.
 
+### MVP-019-CANDIDATE-013: Evidence Staging Lifecycle Management
+
+Allow Pending evidence items to be cancelled/archived without deleting audit history.
+
+Archive status preserves the record while removing abandoned items from the active review queue.
+
+Constitutional principle:
+
+Not Delete.
+
+Not Modify.
+
+Archive.
+
 ---
 
 ## Outcome Attribution
