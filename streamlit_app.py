@@ -48,6 +48,8 @@ REVIEW_HORIZON_OPTIONS = [
     "20 Years",
 ]
 
+MNEMOSYNE_MINIMUM_REVIEW_VOLUME = 10
+
 # Status Values
 STATUS_DRAFT = "Draft"
 STATUS_EVIDENCE_COLLECTION = "Evidence Collection"
@@ -1062,6 +1064,96 @@ if st.session_state['current_view'] == 'Dashboard':
         st.dataframe(watchlist_df, use_container_width=True)
     else:
         st.info("No items require immediate attention.")
+
+    st.divider()
+    section_header("Mnemosyne — Historical Observations")
+    st.markdown(
+        "Historical observations are advisory only.\n"
+        "They do not modify decision records, thesis reviews,\n"
+        "or the investment framework."
+    )
+
+    total_reviews_df = fetch_dataframe(
+        "SELECT COUNT(*) AS total_reviews FROM thesis_reviews"
+    )
+    total_reviews = int(total_reviews_df.iloc[0]["total_reviews"]) if not total_reviews_df.empty else 0
+
+    if total_reviews < MNEMOSYNE_MINIMUM_REVIEW_VOLUME:
+        st.warning(
+            "Preliminary Observation\n\n"
+            "Historical review volume is currently below the constitutional minimum of\n"
+            "10 reviews.\n\n"
+            "Trends shown below are descriptive only and should not be used to modify\n"
+            "the investment framework."
+        )
+        mnemosyne_banner_mode = "Preliminary Observation"
+    else:
+        st.info(
+            "Observation Mode\n\n"
+            "Historical review volume is sufficient for exploratory pattern analysis.\n\n"
+            "Observations remain informational and do not constitute framework\n"
+            "recommendations."
+        )
+        mnemosyne_banner_mode = "Observation Mode"
+
+    mnemosyne_outcome_distribution_df = fetch_dataframe(
+        """
+        SELECT outcome_attribution_type,
+               COUNT(*) AS review_count
+        FROM thesis_reviews
+        GROUP BY outcome_attribution_type
+        ORDER BY outcome_attribution_type
+        """
+    )
+
+    if not mnemosyne_outcome_distribution_df.empty:
+        distribution_display_rows = []
+        for _, row in mnemosyne_outcome_distribution_df.iterrows():
+            review_count = int(row["review_count"])
+            percentage = 0.0 if total_reviews == 0 else (review_count / total_reviews) * 100.0
+            distribution_display_rows.append(
+                {
+                    "Outcome Type": row["outcome_attribution_type"],
+                    "Count": review_count,
+                    "Percentage": f"{percentage:.1f}%",
+                }
+            )
+
+        st.dataframe(pd.DataFrame(distribution_display_rows), use_container_width=True)
+    else:
+        empty_state("No thesis reviews available for historical observation yet.")
+
+    distinct_theses_df = fetch_dataframe(
+        "SELECT COUNT(DISTINCT thesis_id) AS distinct_theses FROM thesis_reviews"
+    )
+    review_horizons_completed_df = fetch_dataframe(
+        "SELECT COUNT(DISTINCT review_horizon) AS review_horizons_completed FROM thesis_reviews WHERE review_horizon IS NOT NULL"
+    )
+    framework_review_consideration_count_df = fetch_dataframe(
+        "SELECT COUNT(*) AS framework_review_consideration_count FROM thesis_reviews WHERE framework_review_eligible = 1"
+    )
+
+    distinct_theses = int(distinct_theses_df.iloc[0]["distinct_theses"]) if not distinct_theses_df.empty else 0
+    review_horizons_completed = int(review_horizons_completed_df.iloc[0]["review_horizons_completed"]) if not review_horizons_completed_df.empty else 0
+    framework_review_consideration_count = int(framework_review_consideration_count_df.iloc[0]["framework_review_consideration_count"]) if not framework_review_consideration_count_df.empty else 0
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        metric_card("Total Thesis Reviews", total_reviews)
+    with col2:
+        metric_card("Distinct Theses Reviewed", distinct_theses)
+    with col3:
+        metric_card("Review Horizons Completed", review_horizons_completed)
+    with col4:
+        metric_card("Framework Review Consideration Count", framework_review_consideration_count)
+
+    st.markdown(
+        "Observations derived from:\n\n"
+        f"• Thesis Reviews: {total_reviews}\n\n"
+        f"• Distinct Theses: {distinct_theses}\n\n"
+        "• Generated:\n"
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    )
 
 elif st.session_state['current_view'] == 'New Thesis':
     st.header("Create New Thesis")
