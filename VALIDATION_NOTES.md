@@ -237,3 +237,26 @@ Validated by first historical case.
 
 Related Charter Principle:
 Decision Quality ≠ Outcome Quality
+
+### VALIDATION-INSIGHT-003: Investment Assessment Measures Capital Allocation Conditions
+Emerged from:
+Meta Platforms 2012 Validation — Complete Investment Assessment
+
+Observation:
+
+The four Investment Assessment pillars consistently evaluate the conditions under which capital is committed rather than the quality of the underlying enterprise.
+
+- I1 evaluates price versus demonstrated evidence.
+- I2 evaluates ownership and market mechanics.
+- I3 evaluates prevailing market expectations and sentiment.
+- I4 evaluates portfolio fit within a defined allocation context.
+Constitutional Significance:
+
+The Investment Assessment therefore measures **capital allocation quality**, while the Business Assessment measures **enterprise quality**. Neither predicts future investment success. Mnemosyne remains solely responsible for evaluating realized outcomes after the decision has been made.
+
+Status:
+Validated by first historical case.
+
+Related Charter Principle:
+
+Decision Quality ≠ Outcome Quality
