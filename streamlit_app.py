@@ -15,6 +15,8 @@ EVENT_EVIDENCE_UPDATED = "Evidence Updated"
 EVENT_EVIDENCE_DELETED = "Evidence Deleted"
 EVENT_BUSINESS_ASSESSMENT_COMPLETED = "Business Assessment Completed"
 EVENT_BUSINESS_ASSESSMENT_UPDATED = "Business Assessment Updated"
+EVENT_EVIDENCE_LINKED = "Evidence Linked to Pillar"
+EVENT_EVIDENCE_UNLINKED = "Evidence Unlinked from Pillar"
 EVENT_INVESTMENT_ASSESSMENT_COMPLETED = "Investment Assessment Completed"
 EVENT_INVESTMENT_ASSESSMENT_UPDATED = "Investment Assessment Updated"
 EVENT_RECOMMENDATION_CHANGED = "Recommendation Changed"
@@ -228,6 +230,19 @@ def init_db():
             version TEXT
         )
     """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pillar_evidence_links (
+            id INTEGER PRIMARY KEY,
+            pillar_score_id INTEGER NOT NULL,
+            evidence_item_id INTEGER NOT NULL,
+            created_by TEXT,
+            created_at TEXT,
+            UNIQUE(pillar_score_id, evidence_item_id),
+            FOREIGN KEY (pillar_score_id) REFERENCES pillar_scores(id),
+            FOREIGN KEY (evidence_item_id) REFERENCES evidence_items(id)
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -390,6 +405,127 @@ def get_business_evidence_coverage(thesis_id):
         )
 
     return coverage_rows
+
+
+def get_available_evidence_items(thesis_id):
+    """Return evidence options for linkage in the active thesis."""
+    evidence_df = fetch_dataframe(
+        """
+        SELECT
+            id,
+            title,
+            source_name,
+            source_publisher,
+            evidence_grade,
+            related_pillar
+        FROM evidence_items
+        WHERE thesis_id = ?
+        ORDER BY id ASC
+        """,
+        (thesis_id,)
+    )
+
+    option_labels = {}
+    option_ids = []
+
+    for _, row in evidence_df.iterrows():
+        evidence_id = int(row["id"])
+        title = str(row["title"]).strip() if pd.notna(row["title"]) and str(row["title"]).strip() else "—"
+        source_display = "—"
+        if pd.notna(row["source_name"]) and str(row["source_name"]).strip():
+            source_display = str(row["source_name"]).strip()
+        elif pd.notna(row["source_publisher"]) and str(row["source_publisher"]).strip():
+            source_display = str(row["source_publisher"]).strip()
+
+        grade_display = str(row["evidence_grade"]).strip() if pd.notna(row["evidence_grade"]) and str(row["evidence_grade"]).strip() else "—"
+        pillar_display = str(row["related_pillar"]).strip() if pd.notna(row["related_pillar"]) and str(row["related_pillar"]).strip() else "—"
+
+        option_labels[evidence_id] = (
+            f"#{evidence_id} | {title} | Source: {source_display} | "
+            f"Grade: {grade_display} | Pillar: {pillar_display}"
+        )
+        option_ids.append(evidence_id)
+
+    return option_ids, option_labels
+
+
+def get_linked_evidence_ids(pillar_score_id):
+    """Return currently linked evidence IDs for a pillar score."""
+    link_df = fetch_dataframe(
+        """
+        SELECT evidence_item_id
+        FROM pillar_evidence_links
+        WHERE pillar_score_id = ?
+        ORDER BY evidence_item_id ASC
+        """,
+        (pillar_score_id,)
+    )
+    if link_df.empty:
+        return []
+    return link_df["evidence_item_id"].astype(int).tolist()
+
+
+def sync_pillar_evidence_links(pillar_score_id, selected_evidence_ids, created_by):
+    """Synchronize evidence link rows with selected IDs and log link events."""
+    existing_ids = set(get_linked_evidence_ids(pillar_score_id))
+    selected_ids = set(int(eid) for eid in selected_evidence_ids)
+
+    to_add = sorted(selected_ids - existing_ids)
+    to_remove = sorted(existing_ids - selected_ids)
+
+    thesis_df = fetch_dataframe(
+        "SELECT thesis_id FROM pillar_scores WHERE id = ?",
+        (pillar_score_id,)
+    )
+    thesis_id = int(thesis_df.iloc[0]["thesis_id"]) if not thesis_df.empty else None
+
+    for evidence_item_id in to_add:
+        insert_query(
+            """
+            INSERT INTO pillar_evidence_links
+            (pillar_score_id, evidence_item_id, created_by, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                pillar_score_id,
+                evidence_item_id,
+                created_by,
+                datetime.now().isoformat()
+            )
+        )
+
+        if thesis_id is not None:
+            log_event(
+                thesis_id=thesis_id,
+                event_type=EVENT_EVIDENCE_LINKED,
+                description=(
+                    f"Linked evidence to pillar: action=linked, "
+                    f"pillar_score_id={pillar_score_id}, evidence_item_id={evidence_item_id}"
+                ),
+                created_by=created_by,
+                version="1.0"
+            )
+
+    for evidence_item_id in to_remove:
+        run_query(
+            """
+            DELETE FROM pillar_evidence_links
+            WHERE pillar_score_id = ? AND evidence_item_id = ?
+            """,
+            (pillar_score_id, evidence_item_id)
+        )
+
+        if thesis_id is not None:
+            log_event(
+                thesis_id=thesis_id,
+                event_type=EVENT_EVIDENCE_UNLINKED,
+                description=(
+                    f"Unlinked evidence from pillar: action=unlinked, "
+                    f"pillar_score_id={pillar_score_id}, evidence_item_id={evidence_item_id}"
+                ),
+                created_by=created_by,
+                version="1.0"
+            )
 
 
 def build_thesis_json(thesis_id):
@@ -1231,6 +1367,11 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             )
             existing_record = existing_df.iloc[0] if not existing_df.empty else None
 
+            available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
+            linked_evidence_defaults = []
+            if existing_record is not None and pd.notna(existing_record['id']):
+                linked_evidence_defaults = get_linked_evidence_ids(int(existing_record['id']))
+
             judgment_default = ""
             if existing_record is not None:
                 if 'judgment' in existing_record.index and pd.notna(existing_record['judgment']) and str(existing_record['judgment']).strip() != "":
@@ -1253,6 +1394,14 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     st.info("A dominant position in a declining industry is not the same as a strong position in a growing one — the score should reflect both current standing and structural trajectory.")
                 elif pillar_id == "B7":
                     st.info("Systems importance should account for dependency quality: reliance on a single government program or contract should not automatically receive a high score.")
+
+                selected_evidence_links = st.multiselect(
+                    "Linked Evidence Items",
+                    options=available_evidence_ids,
+                    default=linked_evidence_defaults,
+                    format_func=lambda evidence_id: available_evidence_labels.get(evidence_id, f"#{evidence_id}"),
+                    help="Link one or more evidence items to this pillar score."
+                )
 
                 col1, col2 = st.columns(2)
 
@@ -1321,6 +1470,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
 
                 if submitted:
                     created_by = reviewer.strip() if reviewer and reviewer.strip() else (thesis['reviewer'] if thesis['reviewer'] else "System")
+                    pillar_score_id = None
 
                     check_df = fetch_dataframe(
                         "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",
@@ -1365,9 +1515,16 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             version="1.0"
                         )
 
+                        resolved_df = fetch_dataframe(
+                            "SELECT id FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",
+                            (thesis_id, pillar_id)
+                        )
+                        if not resolved_df.empty:
+                            pillar_score_id = int(resolved_df.iloc[0]['id'])
+
                         st.success(f"✓ Business assessment updated for {pillar_id} {pillar_name}")
                     else:
-                        insert_query(
+                        pillar_score_id = insert_query(
                             """
                             INSERT INTO pillar_scores
                             (thesis_id, pillar_id, pillar_name, score, rag_status, evidence_grade,
@@ -1404,6 +1561,15 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         )
 
                         st.success(f"✓ Business assessment saved for {pillar_id} {pillar_name}")
+
+                    if pillar_score_id is None:
+                        st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
+                    else:
+                        sync_pillar_evidence_links(
+                            pillar_score_id=pillar_score_id,
+                            selected_evidence_ids=selected_evidence_links,
+                            created_by=created_by
+                        )
 
                     st.rerun()
             
