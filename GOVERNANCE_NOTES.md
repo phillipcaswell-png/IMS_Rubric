@@ -42,3 +42,31 @@ MVP-020 Athena Orchestration Principle:
 Athena coordinates constitutional subsystems. It contributes organization, not judgment. Every section of the AthenaPreBrief has an owning subsystem. Athena contributes zero constitutional authority of its own.
 
 get_athena_prebrief(thesis_id) is read-only. It may never write, enforce, score, decide, or mutate any governed record.
+
+Athena Agent Authority Boundary:
+
+Agents may:
+- gather
+- stage
+- summarize
+- surface
+- classify (non-governed)
+- suggest
+
+Agents may not:
+- decide
+- enforce
+- score
+- promote
+- review
+- mutate governed records
+- bypass constitutional gates
+
+All governed actions require either an existing governed service or an authenticated analyst action.
+
+Suggestions are advisory only. Recording governed actions remains the responsibility of the analyst and the appropriate constitutional subsystem.
+
+Deferred Architectural Intentions:
+- Canonical validation lock helper
+- Subsystem summary services
+- Validation Portfolio concept
