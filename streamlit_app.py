@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import json
+import uuid
 from datetime import datetime
 
 # =============================================================================
@@ -25,6 +26,29 @@ EVENT_THESIS_REVIEW_CREATED = "Thesis Review Created"
 EVENT_THESIS_REVIEW_UPDATED = "Thesis Review Updated"
 EVENT_REVIEW_SCHEDULED = "Review Scheduled"
 EVENT_JSON_EXPORTED = "JSON Exported"
+EVENT_EVIDENCE_STAGED = "Evidence Staged"
+EVENT_EVIDENCE_REVIEWED = "Evidence Reviewed"
+EVENT_EVIDENCE_PROMOTED = "Evidence Promoted"
+EVENT_EVIDENCE_REJECTED = "Evidence Rejected"
+
+INTAKE_STATUS_PENDING = "Pending"
+INTAKE_STATUS_REVIEWED = "Reviewed"
+INTAKE_STATUS_CONFIRMED = "Confirmed"
+INTAKE_STATUS_PROMOTED = "Promoted"
+INTAKE_STATUS_REJECTED = "Rejected"
+
+INTAKE_STATUS_OPTIONS = [
+    INTAKE_STATUS_PENDING,
+    INTAKE_STATUS_REVIEWED,
+    INTAKE_STATUS_CONFIRMED,
+    INTAKE_STATUS_PROMOTED,
+    INTAKE_STATUS_REJECTED,
+]
+
+TERMINAL_INTAKE_STATUSES = [
+    INTAKE_STATUS_PROMOTED,
+    INTAKE_STATUS_REJECTED,
+]
 
 OUTCOME_TYPE_A = "Type A — Thesis Error"
 OUTCOME_TYPE_B = "Type B — Execution Error"
@@ -99,7 +123,7 @@ st.set_page_config(
 )
 
 # Database configuration
-DATABASE_FILE = "ims_mvp.db"
+DATABASE_FILE = "/Users/phillipcaswell/ims_mvp.db"
 
 
 # Database initialization function
@@ -242,6 +266,36 @@ def init_db():
             falsification_summary TEXT,
             next_review_date TEXT,
             created_at TEXT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS evidence_staging (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staging_uuid TEXT NOT NULL UNIQUE,
+            thesis_id INTEGER,
+            source_type TEXT,
+            source_name TEXT,
+            source_url TEXT,
+            publication_date TEXT,
+            retrieval_date TEXT,
+            author_publisher TEXT,
+            evidence_summary TEXT,
+            key_takeaway TEXT,
+            preliminary_grade TEXT,
+            source_quality_notes TEXT,
+            duplicate_flag INTEGER DEFAULT 0,
+            duplicate_notes TEXT,
+            intake_status TEXT DEFAULT 'Pending',
+            rejection_reason TEXT,
+            reviewed_by TEXT,
+            review_date TEXT,
+            promoted_evidence_id INTEGER,
+            promoted_at TEXT,
+            created_by TEXT,
+            created_at TEXT,
+            FOREIGN KEY (thesis_id) REFERENCES theses(id),
+            FOREIGN KEY (promoted_evidence_id) REFERENCES evidence_items(id)
         )
     """)
 
@@ -576,6 +630,124 @@ def sync_pillar_evidence_links(pillar_score_id, selected_evidence_ids, created_b
                 created_by=created_by,
                 version="1.0"
             )
+
+
+def promote_staged_evidence(staging_uuid, analyst):
+    """Promote analyst-confirmed staged evidence into the official evidence repository."""
+    staging_df = fetch_dataframe(
+        "SELECT * FROM evidence_staging WHERE staging_uuid = ? LIMIT 1",
+        (staging_uuid,)
+    )
+
+    if staging_df.empty:
+        return {
+            "success": False,
+            "message": "Staged evidence not found.",
+            "promoted_evidence_id": None,
+        }
+
+    staging_record = staging_df.iloc[0]
+    current_status = str(staging_record["intake_status"]).strip() if pd.notna(staging_record["intake_status"]) else INTAKE_STATUS_PENDING
+
+    if current_status in TERMINAL_INTAKE_STATUSES:
+        return {
+            "success": False,
+            "message": f"Promotion blocked: terminal status '{current_status}'.",
+            "promoted_evidence_id": None,
+        }
+
+    if current_status != INTAKE_STATUS_CONFIRMED:
+        return {
+            "success": False,
+            "message": "Promotion blocked: staged evidence must be Confirmed before promotion.",
+            "promoted_evidence_id": None,
+        }
+
+    if pd.isna(staging_record["thesis_id"]):
+        return {
+            "success": False,
+            "message": "Promotion blocked: thesis_id is required to promote evidence.",
+            "promoted_evidence_id": None,
+        }
+
+    promoted_evidence_id = insert_query(
+        """
+        INSERT INTO evidence_items
+        (
+            thesis_id,
+            source_name,
+            source_type,
+            publication_date,
+            evidence_grade,
+            confidence_basis,
+            url_or_citation,
+            related_pillar,
+            evidence_summary,
+            created_at,
+            title,
+            source_publisher,
+            key_takeaway,
+            tags,
+            credibility_score,
+            materiality_score,
+            thesis_alignment
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            int(staging_record["thesis_id"]),
+            staging_record["source_name"] if pd.notna(staging_record["source_name"]) else None,
+            staging_record["source_type"] if pd.notna(staging_record["source_type"]) else None,
+            staging_record["publication_date"] if pd.notna(staging_record["publication_date"]) else None,
+            staging_record["preliminary_grade"] if pd.notna(staging_record["preliminary_grade"]) else None,
+            staging_record["source_quality_notes"] if pd.notna(staging_record["source_quality_notes"]) else None,
+            staging_record["source_url"] if pd.notna(staging_record["source_url"]) else None,
+            None,
+            staging_record["evidence_summary"] if pd.notna(staging_record["evidence_summary"]) else None,
+            datetime.now().isoformat(),
+            staging_record["source_name"] if pd.notna(staging_record["source_name"]) else None,
+            staging_record["author_publisher"] if pd.notna(staging_record["author_publisher"]) else None,
+            staging_record["key_takeaway"] if pd.notna(staging_record["key_takeaway"]) else None,
+            None,
+            None,
+            None,
+            None,
+        )
+    )
+
+    run_query(
+        """
+        UPDATE evidence_staging
+        SET promoted_evidence_id = ?,
+            promoted_at = ?,
+            intake_status = ?,
+            reviewed_by = ?,
+            review_date = ?
+        WHERE staging_uuid = ?
+        """,
+        (
+            int(promoted_evidence_id),
+            datetime.now().isoformat(),
+            INTAKE_STATUS_PROMOTED,
+            analyst,
+            datetime.now().isoformat(),
+            staging_uuid,
+        )
+    )
+
+    log_event(
+        thesis_id=int(staging_record["thesis_id"]),
+        event_type=EVENT_EVIDENCE_PROMOTED,
+        description=f"Staged evidence promoted: staging_uuid={staging_uuid}, promoted_evidence_id={promoted_evidence_id}",
+        created_by=analyst if analyst and str(analyst).strip() else "System",
+        version="1.0"
+    )
+
+    return {
+        "success": True,
+        "message": "Staged evidence promoted successfully.",
+        "promoted_evidence_id": int(promoted_evidence_id),
+    }
 
 
 def build_thesis_json(thesis_id):
@@ -1767,6 +1939,307 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             st.success("✓ Evidence item deleted")
                             st.session_state['selected_evidence_id'] = None
                             st.rerun()
+
+            st.divider()
+            section_header("Theia v1 — Governed Evidence Staging")
+
+            all_thesis_options_df = fetch_dataframe(
+                "SELECT id, company_name FROM theses ORDER BY company_name ASC"
+            )
+            all_thesis_ids = all_thesis_options_df["id"].astype(int).tolist() if not all_thesis_options_df.empty else []
+            thesis_option_values = [None] + all_thesis_ids
+            default_thesis_index = 0
+            if thesis_id in thesis_option_values:
+                default_thesis_index = thesis_option_values.index(thesis_id)
+
+            with st.form("theia_intake_form"):
+                intake_thesis_id = st.selectbox(
+                    "Thesis",
+                    options=thesis_option_values,
+                    index=default_thesis_index,
+                    format_func=lambda tid: (
+                        "— Unassigned —"
+                        if tid is None
+                        else f"{int(tid)} — {all_thesis_options_df[all_thesis_options_df['id'] == int(tid)].iloc[0]['company_name']}"
+                    ),
+                    key="theia_intake_thesis_id"
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    intake_source_type = st.selectbox(
+                        "Source Type",
+                        options=[""] + SOURCE_TYPE_OPTIONS,
+                        key="theia_intake_source_type"
+                    )
+                with col2:
+                    intake_preliminary_grade = st.selectbox(
+                        "Preliminary Grade",
+                        options=[""] + [GRADE_A, GRADE_B, GRADE_C, GRADE_D],
+                        key="theia_intake_preliminary_grade"
+                    )
+
+                intake_source_name = st.text_input("Source Name", key="theia_intake_source_name")
+                intake_source_url = st.text_input("Source URL", key="theia_intake_source_url")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    intake_publication_date = st.date_input(
+                        "Publication Date",
+                        value=datetime.now().date(),
+                        key="theia_intake_publication_date"
+                    )
+                with col2:
+                    intake_retrieval_date = st.date_input(
+                        "Retrieval Date",
+                        value=datetime.now().date(),
+                        key="theia_intake_retrieval_date"
+                    )
+
+                intake_author_publisher = st.text_input("Author / Publisher", key="theia_intake_author_publisher")
+                intake_evidence_summary = st.text_area("Evidence Summary", height=90, key="theia_intake_summary")
+                intake_key_takeaway = st.text_area("Key Takeaway", height=90, key="theia_intake_key_takeaway")
+                intake_source_quality_notes = st.text_area("Source Quality Notes", height=90, key="theia_intake_quality_notes")
+
+                intake_duplicate_flag = st.checkbox("Duplicate Flag", value=False, key="theia_intake_duplicate_flag")
+                intake_duplicate_notes = st.text_area("Duplicate Notes", height=70, key="theia_intake_duplicate_notes")
+                intake_created_by = st.text_input(
+                    "Created By",
+                    value=thesis['reviewer'] if thesis['reviewer'] else "System",
+                    key="theia_intake_created_by"
+                )
+
+                intake_submitted = st.form_submit_button("Stage Evidence", use_container_width=True)
+
+                if intake_submitted:
+                    staging_uuid = str(uuid.uuid4())
+                    insert_query(
+                        """
+                        INSERT INTO evidence_staging
+                        (
+                            staging_uuid,
+                            thesis_id,
+                            source_type,
+                            source_name,
+                            source_url,
+                            publication_date,
+                            retrieval_date,
+                            author_publisher,
+                            evidence_summary,
+                            key_takeaway,
+                            preliminary_grade,
+                            source_quality_notes,
+                            duplicate_flag,
+                            duplicate_notes,
+                            intake_status,
+                            created_by,
+                            created_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            staging_uuid,
+                            int(intake_thesis_id) if intake_thesis_id is not None else None,
+                            intake_source_type if intake_source_type else None,
+                            intake_source_name.strip() if intake_source_name else None,
+                            intake_source_url.strip() if intake_source_url else None,
+                            intake_publication_date.isoformat() if intake_publication_date else None,
+                            intake_retrieval_date.isoformat() if intake_retrieval_date else None,
+                            intake_author_publisher.strip() if intake_author_publisher else None,
+                            intake_evidence_summary.strip() if intake_evidence_summary else None,
+                            intake_key_takeaway.strip() if intake_key_takeaway else None,
+                            intake_preliminary_grade if intake_preliminary_grade else None,
+                            intake_source_quality_notes.strip() if intake_source_quality_notes else None,
+                            1 if intake_duplicate_flag else 0,
+                            intake_duplicate_notes.strip() if intake_duplicate_notes else None,
+                            INTAKE_STATUS_PENDING,
+                            intake_created_by.strip() if intake_created_by else "System",
+                            datetime.now().isoformat(),
+                        )
+                    )
+
+                    if intake_thesis_id is not None:
+                        log_event(
+                            thesis_id=int(intake_thesis_id),
+                            event_type=EVENT_EVIDENCE_STAGED,
+                            description=f"Evidence staged: staging_uuid={staging_uuid}",
+                            created_by=intake_created_by.strip() if intake_created_by else "System",
+                            version="1.0"
+                        )
+
+                    st.success(f"✓ Evidence staged with UUID: {staging_uuid}")
+                    st.rerun()
+
+            st.divider()
+            section_header("Theia Intake Review Queue")
+
+            status_filter_options = ["All"] + INTAKE_STATUS_OPTIONS
+            selected_status_filter = st.selectbox(
+                "Filter by Intake Status",
+                options=status_filter_options,
+                key="theia_status_filter"
+            )
+
+            staging_query = "SELECT * FROM evidence_staging WHERE thesis_id = ?"
+            staging_params = (thesis_id,)
+            if selected_status_filter != "All":
+                staging_query += " AND intake_status = ?"
+                staging_params = (thesis_id, selected_status_filter)
+            staging_query += " ORDER BY created_at DESC"
+
+            staging_df = fetch_dataframe(staging_query, staging_params)
+
+            if staging_df.empty:
+                empty_state("No staged evidence records found for this filter.")
+            else:
+                queue_display_df = staging_df[
+                    [
+                        "staging_uuid",
+                        "intake_status",
+                        "source_name",
+                        "source_type",
+                        "preliminary_grade",
+                        "duplicate_flag",
+                        "reviewed_by",
+                        "review_date",
+                        "promoted_evidence_id",
+                        "created_at",
+                    ]
+                ].copy()
+                queue_display_df = queue_display_df.rename(
+                    columns={
+                        "staging_uuid": "Staging UUID",
+                        "intake_status": "Status",
+                        "source_name": "Source Name",
+                        "source_type": "Source Type",
+                        "preliminary_grade": "Prelim Grade",
+                        "duplicate_flag": "Duplicate",
+                        "reviewed_by": "Reviewed By",
+                        "review_date": "Review Date",
+                        "promoted_evidence_id": "Promoted Evidence ID",
+                        "created_at": "Created At",
+                    }
+                )
+                st.dataframe(queue_display_df, use_container_width=True)
+
+                staging_uuid_options = staging_df["staging_uuid"].astype(str).tolist()
+                selected_staging_uuid = st.selectbox(
+                    "Select Staged Evidence",
+                    options=staging_uuid_options,
+                    key="theia_selected_staging_uuid"
+                )
+
+                selected_staging_df = staging_df[staging_df["staging_uuid"] == selected_staging_uuid]
+                selected_staging = selected_staging_df.iloc[0] if not selected_staging_df.empty else None
+
+                if selected_staging is not None:
+                    current_status = str(selected_staging["intake_status"]).strip() if pd.notna(selected_staging["intake_status"]) else INTAKE_STATUS_PENDING
+                    summary_field("Current Status", current_status)
+                    summary_field("Source Name", selected_staging["source_name"] if pd.notna(selected_staging["source_name"]) else "—")
+                    summary_field("Summary", selected_staging["evidence_summary"] if pd.notna(selected_staging["evidence_summary"]) else "—")
+                    summary_field("Duplicate Notes", selected_staging["duplicate_notes"] if pd.notna(selected_staging["duplicate_notes"]) else "—")
+
+                    reviewer_name = st.text_input(
+                        "Analyst",
+                        value=thesis['reviewer'] if thesis['reviewer'] else "System",
+                        key="theia_reviewer_name"
+                    )
+
+                    rejection_reason_input = st.text_area(
+                        "Rejection Reason (required for rejection)",
+                        value="",
+                        key="theia_rejection_reason"
+                    )
+
+                    if current_status in TERMINAL_INTAKE_STATUSES:
+                        st.info(f"Status is terminal ({current_status}). No further status transitions are allowed.")
+                    else:
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            if current_status == INTAKE_STATUS_PENDING and st.button("Mark as Reviewed", key="theia_mark_reviewed"):
+                                run_query(
+                                    """
+                                    UPDATE evidence_staging
+                                    SET intake_status = ?, reviewed_by = ?, review_date = ?
+                                    WHERE staging_uuid = ?
+                                    """,
+                                    (
+                                        INTAKE_STATUS_REVIEWED,
+                                        reviewer_name.strip() if reviewer_name else "System",
+                                        datetime.now().isoformat(),
+                                        selected_staging_uuid,
+                                    )
+                                )
+                                if pd.notna(selected_staging["thesis_id"]):
+                                    log_event(
+                                        thesis_id=int(selected_staging["thesis_id"]),
+                                        event_type=EVENT_EVIDENCE_REVIEWED,
+                                        description=f"Evidence reviewed: staging_uuid={selected_staging_uuid}",
+                                        created_by=reviewer_name.strip() if reviewer_name else "System",
+                                        version="1.0"
+                                    )
+                                st.success("✓ Staged evidence marked as Reviewed")
+                                st.rerun()
+
+                        with col2:
+                            if current_status == INTAKE_STATUS_REVIEWED and st.button("Mark as Confirmed", key="theia_mark_confirmed"):
+                                run_query(
+                                    """
+                                    UPDATE evidence_staging
+                                    SET intake_status = ?, reviewed_by = ?, review_date = ?, rejection_reason = NULL
+                                    WHERE staging_uuid = ?
+                                    """,
+                                    (
+                                        INTAKE_STATUS_CONFIRMED,
+                                        reviewer_name.strip() if reviewer_name else "System",
+                                        datetime.now().isoformat(),
+                                        selected_staging_uuid,
+                                    )
+                                )
+                                st.success("✓ Staged evidence marked as Confirmed")
+                                st.rerun()
+
+                        with col3:
+                            if current_status == INTAKE_STATUS_REVIEWED and st.button("Mark as Rejected", key="theia_mark_rejected"):
+                                if not rejection_reason_input.strip():
+                                    st.error("Rejection requires a non-empty rejection_reason.")
+                                else:
+                                    run_query(
+                                        """
+                                        UPDATE evidence_staging
+                                        SET intake_status = ?, reviewed_by = ?, review_date = ?, rejection_reason = ?
+                                        WHERE staging_uuid = ?
+                                        """,
+                                        (
+                                            INTAKE_STATUS_REJECTED,
+                                            reviewer_name.strip() if reviewer_name else "System",
+                                            datetime.now().isoformat(),
+                                            rejection_reason_input.strip(),
+                                            selected_staging_uuid,
+                                        )
+                                    )
+                                    if pd.notna(selected_staging["thesis_id"]):
+                                        log_event(
+                                            thesis_id=int(selected_staging["thesis_id"]),
+                                            event_type=EVENT_EVIDENCE_REJECTED,
+                                            description=f"Evidence rejected: staging_uuid={selected_staging_uuid}",
+                                            created_by=reviewer_name.strip() if reviewer_name else "System",
+                                            version="1.0"
+                                        )
+                                    st.success("✓ Staged evidence marked as Rejected")
+                                    st.rerun()
+
+                        if current_status == INTAKE_STATUS_CONFIRMED:
+                            if st.button("Promote to Evidence Repository", key="theia_promote_confirmed"):
+                                promotion_result = promote_staged_evidence(
+                                    staging_uuid=selected_staging_uuid,
+                                    analyst=reviewer_name.strip() if reviewer_name else "System"
+                                )
+                                if promotion_result["success"]:
+                                    st.success(f"✓ Promoted to evidence_items ID {promotion_result['promoted_evidence_id']}")
+                                    st.rerun()
+                                else:
+                                    st.error(promotion_result["message"])
         
         with tab3:
             section_header("Business Quality Scoring")
