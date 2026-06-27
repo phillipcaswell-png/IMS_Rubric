@@ -260,3 +260,25 @@ Validated by first historical case.
 Related Charter Principle:
 
 Decision Quality ≠ Outcome Quality
+
+### MVP-019-FRICTION-004: Thesis Review Required Field Validation
+
+Issue:
+The Thesis Review form required all narrative fields before saving,
+preventing classification-only review records.
+
+Observed Evidence:
+Phase 7 Mnemosyne outcome attribution could not be entered without
+completing all narrative fields simultaneously.
+
+Impact:
+The database schema correctly allows NULL narrative fields. The UI
+validation was more restrictive than the constitutional requirement.
+Attribution classification is a distinct governed action from narrative
+completion.
+
+Candidate Improvement:
+Minimum required fields for save: review_horizon, outcome_attribution_type,
+reviewer. All narrative fields optional at initial classification.
+
+Status: Validated — fix applied during Meta 2012 validation Phase 7

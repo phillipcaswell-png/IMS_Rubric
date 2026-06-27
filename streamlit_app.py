@@ -3296,14 +3296,6 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             st.error("Review Horizon is required.")
                         elif not outcome_attribution_type:
                             st.error("Outcome Attribution Type is required.")
-                        elif not outcome_summary.strip():
-                            st.error("Outcome Summary is required.")
-                        elif not outcome_evidence.strip():
-                            st.error("Outcome Evidence is required.")
-                        elif not thesis_quality_assessment.strip():
-                            st.error("Thesis Quality Assessment is required.")
-                        elif not decision_quality_notes.strip():
-                            st.error("Decision Quality Notes is required.")
                         elif not reviewer.strip():
                             st.error("Reviewer is required.")
                         else:
