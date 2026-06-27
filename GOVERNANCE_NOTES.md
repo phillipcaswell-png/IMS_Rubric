@@ -18,3 +18,22 @@ Themis: Validate, Govern, Gate. Never discovers evidence.
 Analyst: Exercises judgment.
 Evidence Repository: Official evidence only.
 Mnemosyne: Observe, Calibrate, Learn. Never changes history.
+
+Validation Case 001 Regression Requirement (effective v1.0.0):
+
+Every architectural milestone from v1.0.0 forward must demonstrate
+that Validation Case 001 (Meta Platforms 2012) can still be executed
+correctly against the modified codebase before the milestone is
+approved for commit.
+
+Minimum regression criteria:
+1. Evidence cutoff enforcement blocks post-2012-05-18 evidence
+2. Themis gate enforces 11/11 pillar completeness before decision
+3. Validation configuration locks after first decision record
+4. Layer 1 decision record remains immutable
+5. Layer 2 thesis reviews can be created independently
+6. Mnemosyne outcome attribution records correctly
+
+This regression is not a full re-execution of the validation case.
+It is a constitutional smoke test against the five enforcement
+mechanisms that v1.0.0 validated.
