@@ -19,6 +19,7 @@ EVENT_EVIDENCE_LINKED = "Evidence Linked to Pillar"
 EVENT_EVIDENCE_UNLINKED = "Evidence Unlinked from Pillar"
 EVENT_INVESTMENT_ASSESSMENT_COMPLETED = "Investment Assessment Completed"
 EVENT_INVESTMENT_ASSESSMENT_UPDATED = "Investment Assessment Updated"
+EVENT_DECISION_RECORDED = "Decision Recorded"
 EVENT_RECOMMENDATION_CHANGED = "Recommendation Changed"
 EVENT_REVIEW_SCHEDULED = "Review Scheduled"
 EVENT_JSON_EXPORTED = "JSON Exported"
@@ -579,6 +580,61 @@ def build_thesis_json(thesis_id):
         "investment_assessments": investment_list,
         "decision_log": decision_dict,
         "audit_trail": events_list
+    }
+
+
+def validate_decision_gate(thesis_id):
+    """Validate constitutional completion for decision eligibility."""
+    required_pillars = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "I1", "I2", "I3", "I4"]
+    pillar_df = fetch_dataframe(
+        """
+        SELECT pillar_id, score, judgment, confidence_basis, falsification_trigger
+        FROM pillar_scores
+        WHERE thesis_id = ? AND pillar_id IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (thesis_id, *required_pillars)
+    )
+
+    by_pillar = {}
+    if not pillar_df.empty:
+        for _, row in pillar_df.iterrows():
+            pid = str(row["pillar_id"]).strip()
+            if pid not in by_pillar:
+                by_pillar[pid] = row
+
+    missing = []
+    completed = 0
+
+    for pillar_id in required_pillars:
+        row = by_pillar.get(pillar_id)
+        pillar_missing = False
+
+        if row is None or pd.isna(row["score"]):
+            missing.append({"pillar_id": pillar_id, "field": "score", "label": "Score"})
+            pillar_missing = True
+
+        if row is None or pd.isna(row["judgment"]) or not str(row["judgment"]).strip():
+            missing.append({"pillar_id": pillar_id, "field": "judgment", "label": "Judgment"})
+            pillar_missing = True
+
+        if row is None or pd.isna(row["confidence_basis"]) or not str(row["confidence_basis"]).strip():
+            missing.append({"pillar_id": pillar_id, "field": "confidence_basis", "label": "Confidence Basis"})
+            pillar_missing = True
+
+        if row is None or pd.isna(row["falsification_trigger"]) or not str(row["falsification_trigger"]).strip():
+            missing.append({"pillar_id": pillar_id, "field": "falsification_trigger", "label": "Falsification Trigger"})
+            pillar_missing = True
+
+        if not pillar_missing:
+            completed += 1
+
+    return {
+        "eligible": len(missing) == 0,
+        "completed": completed,
+        "required": 11,
+        "missing": missing,
+        "red_conditions": [],
+        "validated_at": datetime.now().isoformat()
     }
 
 
@@ -1940,6 +1996,22 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             empty_state("Risk Module Coming Next")
 
         with tab9:
+            gate_result = validate_decision_gate(thesis_id)
+
+            section_header("Themis Constitutional Validation")
+            if gate_result["eligible"]:
+                st.success("🟢 Decision Eligible")
+            else:
+                st.error("🔴 Decision Blocked")
+
+            st.write(f"Completed: {gate_result['completed']} / {gate_result['required']}")
+            if gate_result["missing"]:
+                st.write("Missing Requirements:")
+                for item in gate_result["missing"]:
+                    st.write(f"- {item['pillar_id']} — {item['label']}")
+            st.caption(f"Validated at: {gate_result['validated_at']}")
+            st.divider()
+
             # Decision Form
             section_header("Record Decision")
             
@@ -2024,61 +2096,67 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 submitted = st.form_submit_button("Save Decision", use_container_width=True, key="decision_submit")
                 
                 if submitted:
-                    if existing_decision is not None:
-                        # UPDATE existing decision
-                        run_query(
-                            """
-                            UPDATE decision_logs
-                            SET recommendation = ?, horizon_map = ?, action = ?,
-                                review_date = ?, decision_rationale = ?, key_risks = ?,
-                                falsification_summary = ?, next_review_date = ?
-                            WHERE thesis_id = ?
-                            """,
-                            (
-                                recommendation if recommendation else None,
-                                horizon_map.strip() if horizon_map else None,
-                                action.strip() if action else None,
-                                review_date.isoformat() if review_date else None,
-                                decision_rationale.strip() if decision_rationale else None,
-                                key_risks.strip() if key_risks else None,
-                                falsification_summary.strip() if falsification_summary else None,
-                                next_review_date.isoformat() if next_review_date else None,
-                                thesis_id
-                            )
-                        )
+                    gate_result = validate_decision_gate(thesis_id)
+                    if not gate_result["eligible"]:
+                        st.error("Decision blocked by Themis Constitutional Validation.")
+                        for item in gate_result["missing"]:
+                            st.write(f"- {item['pillar_id']} — {item['label']}")
                     else:
-                        # INSERT new decision
-                        insert_query(
-                            """
-                            INSERT INTO decision_logs
-                            (thesis_id, recommendation, horizon_map, action, review_date,
-                             decision_rationale, key_risks, falsification_summary, next_review_date, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                thesis_id,
-                                recommendation if recommendation else None,
-                                horizon_map.strip() if horizon_map else None,
-                                action.strip() if action else None,
-                                review_date.isoformat() if review_date else None,
-                                decision_rationale.strip() if decision_rationale else None,
-                                key_risks.strip() if key_risks else None,
-                                falsification_summary.strip() if falsification_summary else None,
-                                next_review_date.isoformat() if next_review_date else None,
-                                datetime.now().isoformat()
+                        if existing_decision is not None:
+                            # UPDATE existing decision
+                            run_query(
+                                """
+                                UPDATE decision_logs
+                                SET recommendation = ?, horizon_map = ?, action = ?,
+                                    review_date = ?, decision_rationale = ?, key_risks = ?,
+                                    falsification_summary = ?, next_review_date = ?
+                                WHERE thesis_id = ?
+                                """,
+                                (
+                                    recommendation if recommendation else None,
+                                    horizon_map.strip() if horizon_map else None,
+                                    action.strip() if action else None,
+                                    review_date.isoformat() if review_date else None,
+                                    decision_rationale.strip() if decision_rationale else None,
+                                    key_risks.strip() if key_risks else None,
+                                    falsification_summary.strip() if falsification_summary else None,
+                                    next_review_date.isoformat() if next_review_date else None,
+                                    thesis_id
+                                )
                             )
+                        else:
+                            # INSERT new decision
+                            insert_query(
+                                """
+                                INSERT INTO decision_logs
+                                (thesis_id, recommendation, horizon_map, action, review_date,
+                                 decision_rationale, key_risks, falsification_summary, next_review_date, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    thesis_id,
+                                    recommendation if recommendation else None,
+                                    horizon_map.strip() if horizon_map else None,
+                                    action.strip() if action else None,
+                                    review_date.isoformat() if review_date else None,
+                                    decision_rationale.strip() if decision_rationale else None,
+                                    key_risks.strip() if key_risks else None,
+                                    falsification_summary.strip() if falsification_summary else None,
+                                    next_review_date.isoformat() if next_review_date else None,
+                                    datetime.now().isoformat()
+                                )
+                            )
+
+                        log_event(
+                            thesis_id=thesis_id,
+                            event_type=EVENT_DECISION_RECORDED,
+                            description=f"Decision recorded or updated. validated_at={gate_result['validated_at']}",
+                            created_by=thesis['reviewer'] if thesis['reviewer'] else "System",
+                            version="1.0"
                         )
-                    
-                    log_event(
-                        thesis_id=thesis_id,
-                        event_type=EVENT_RECOMMENDATION_CHANGED,
-                        description="Decision recorded or updated.",
-                        created_by=thesis['reviewer'] if thesis['reviewer'] else "System",
-                        version="1.0"
-                    )
-                    
-                    st.success("✓ Decision saved")
-                    st.rerun()
+
+                        st.success("✓ Decision saved")
+                        st.rerun()
             
             st.divider()
             
