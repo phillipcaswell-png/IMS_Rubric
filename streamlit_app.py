@@ -1647,6 +1647,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             
             # Check for existing record
             existing_record = None
+            existing_pillar_score_id = None
             if selected_pillar and selected_pillar != "":
                 pillar_id_check = selected_pillar.split(" ", 1)[0]
                 existing_df = fetch_dataframe(
@@ -1655,6 +1656,12 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 )
                 if not existing_df.empty:
                     existing_record = existing_df.iloc[0]
+                    existing_pillar_score_id = int(existing_record['id']) if pd.notna(existing_record['id']) else None
+
+            available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
+            linked_evidence_defaults = []
+            if existing_pillar_score_id is not None:
+                linked_evidence_defaults = get_linked_evidence_ids(existing_pillar_score_id)
 
             investment_judgment_default = ""
             if existing_record is not None:
@@ -1726,11 +1733,12 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     )
                 
                 with col2:
-                    evidence_items = st.text_input(
-                        "Evidence Items",
-                        value=existing_record['evidence_items'] if existing_record is not None and pd.notna(existing_record['evidence_items']) else "",
-                        placeholder="Related evidence items",
-                        key="invest_items"
+                    selected_evidence_links = st.multiselect(
+                        "Linked Evidence Items",
+                        options=available_evidence_ids,
+                        default=linked_evidence_defaults,
+                        format_func=lambda evidence_id: available_evidence_labels.get(evidence_id, f"#{evidence_id}"),
+                        help="Link one or more evidence items to this investment pillar score."
                     )
                 
                 judgment = st.text_area(
@@ -1820,11 +1828,12 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         
                         if not check_df.empty:
                             # UPDATE existing record
+                            pillar_score_id = int(check_df.iloc[0]['id']) if pd.notna(check_df.iloc[0]['id']) else None
                             run_query(
                                 """
                                 UPDATE pillar_scores
                                 SET score = ?, rag_status = ?, evidence_grade = ?,
-                                    confidence_basis = ?, primary_sources = ?, evidence_items = ?,
+                                    confidence_basis = ?, primary_sources = ?,
                                     judgment = ?, falsification_trigger = ?,
                                     reviewer = ?, review_date = ?, drl = ?
                                 WHERE thesis_id = ? AND pillar_id = ?
@@ -1835,7 +1844,6 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                     evidence_grade if evidence_grade else None,
                                     confidence_basis.strip(),
                                     primary_sources.strip() if primary_sources else None,
-                                    evidence_items.strip() if evidence_items else None,
                                     judgment.strip(),
                                     falsification_trigger.strip(),
                                     reviewer.strip() if reviewer else None,
@@ -1857,14 +1865,14 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             st.success(f"✓ Investment assessment updated for {pillar_id} {pillar_name}")
                         else:
                             # INSERT new record
-                            insert_query(
+                            pillar_score_id = insert_query(
                                 """
                                 INSERT INTO pillar_scores
                                 (thesis_id, pillar_id, pillar_name, score, rag_status, evidence_grade,
-                                 confidence_basis, primary_sources, evidence_items, judgment,
+                                 confidence_basis, primary_sources, judgment,
                                  falsification_trigger,
                                  reviewer, review_date, drl, created_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
                                     thesis_id,
@@ -1875,7 +1883,6 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                     evidence_grade if evidence_grade else None,
                                     confidence_basis.strip(),
                                     primary_sources.strip() if primary_sources else None,
-                                    evidence_items.strip() if evidence_items else None,
                                     judgment.strip(),
                                     falsification_trigger.strip(),
                                     reviewer.strip() if reviewer else None,
@@ -1894,6 +1901,15 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             )
                             
                             st.success(f"✓ Investment assessment saved for {pillar_id} {pillar_name}")
+
+                        if pillar_score_id is None:
+                            st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
+                        else:
+                            sync_pillar_evidence_links(
+                                pillar_score_id=pillar_score_id,
+                                selected_evidence_ids=selected_evidence_links,
+                                created_by=created_by
+                            )
                         
                         st.rerun()
             
