@@ -195,6 +195,24 @@ After Phase 7, summarize:
 VALIDATION_NOTES.md is the permanent engineering artifact for historical validation governance.
 
 Append only rules:
+
 - Never overwrite or remove prior validation notes.
 - Append new workflow friction, governance observations, analyst usability issues, repeated manual steps, and architectural improvement opportunities.
 - Do not implement improvements during validation documentation updates; this file is evidence for later roadmap decisions.
+
+### VALIDATION-INSIGHT-001: B7 Systems Importance Refinement
+
+Emerged from:
+Meta Platforms 2012 Validation — B7 Scoring
+
+Observation:
+The rubric distinguishes between companies whose failure would be highly disruptive versus those whose failure would be societally catastrophic. Facebook in 2012 scored 6/10 because it was important to hundreds of millions of users and a growing digital ecosystem, but it was not yet critical to government, financial, healthcare, utilities, transportation, or defense systems.
+
+Insight:
+This distinction appears analytically meaningful and reproducible. Future historical validation cases should evaluate whether B7 naturally separates systemic commercial importance from true critical infrastructure.
+
+Status:
+Hypothesis
+
+Related MVP:
+Post-MVP-019 rubric evolution (only after multiple historical validation cases confirm the pattern).
