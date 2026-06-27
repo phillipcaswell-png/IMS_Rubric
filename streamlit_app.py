@@ -21,8 +21,32 @@ EVENT_INVESTMENT_ASSESSMENT_COMPLETED = "Investment Assessment Completed"
 EVENT_INVESTMENT_ASSESSMENT_UPDATED = "Investment Assessment Updated"
 EVENT_DECISION_RECORDED = "Decision Recorded"
 EVENT_RECOMMENDATION_CHANGED = "Recommendation Changed"
+EVENT_THESIS_REVIEW_CREATED = "Thesis Review Created"
+EVENT_THESIS_REVIEW_UPDATED = "Thesis Review Updated"
 EVENT_REVIEW_SCHEDULED = "Review Scheduled"
 EVENT_JSON_EXPORTED = "JSON Exported"
+
+OUTCOME_TYPE_A = "Type A — Thesis Error"
+OUTCOME_TYPE_B = "Type B — Execution Error"
+OUTCOME_TYPE_C1 = "Type C1 — Temporary Exogenous Shock"
+OUTCOME_TYPE_C2 = "Type C2 — Structural Regime Change"
+OUTCOME_TYPE_D = "Type D — Random Variation"
+
+OUTCOME_TYPE_OPTIONS = [
+    OUTCOME_TYPE_A,
+    OUTCOME_TYPE_B,
+    OUTCOME_TYPE_C1,
+    OUTCOME_TYPE_C2,
+    OUTCOME_TYPE_D,
+]
+
+REVIEW_HORIZON_OPTIONS = [
+    "1 Year",
+    "3 Years",
+    "5 Years",
+    "10 Years",
+    "20 Years",
+]
 
 # Status Values
 STATUS_DRAFT = "Draft"
@@ -216,6 +240,29 @@ def init_db():
             falsification_summary TEXT,
             next_review_date TEXT,
             created_at TEXT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS thesis_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thesis_id INTEGER NOT NULL,
+            decision_log_id INTEGER NOT NULL,
+            review_date TEXT,
+            review_horizon TEXT,
+            outcome_summary TEXT,
+            outcome_attribution_type TEXT,
+            outcome_evidence TEXT,
+            thesis_quality_assessment TEXT,
+            decision_quality_preserved INTEGER DEFAULT 1,
+            decision_quality_notes TEXT,
+            framework_review_eligible INTEGER DEFAULT 0,
+            framework_notes TEXT,
+            reviewer TEXT,
+            created_at TEXT,
+            UNIQUE(thesis_id, decision_log_id, review_horizon),
+            FOREIGN KEY (thesis_id) REFERENCES theses(id),
+            FOREIGN KEY (decision_log_id) REFERENCES decision_logs(id)
         )
     """)
     
@@ -1993,7 +2040,285 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 empty_state("No investment assessment scores have been added for this thesis yet.")
         
         with tab8:
-            empty_state("Risk Module Coming Next")
+            section_header("Historical Validation / Thesis Review")
+
+            decision_context_df = fetch_dataframe(
+                """
+                SELECT *
+                FROM decision_logs
+                WHERE thesis_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (thesis_id,)
+            )
+
+            if decision_context_df.empty:
+                st.info("No recorded decision exists yet. A thesis review cannot be created until a governed decision has been recorded.")
+            else:
+                decision_context = decision_context_df.iloc[0]
+                decision_log_id = int(decision_context["id"])
+
+                st.caption("Decision Record (Read-Only Context)")
+                summary_field("Decision Log ID", decision_context["id"])
+                summary_field("Recommendation", decision_context["recommendation"] or "—")
+                summary_field("Review Date", decision_context["review_date"] or "—")
+                summary_field("Horizon Map", decision_context["horizon_map"] or "—")
+                summary_field("Action", decision_context["action"] or "—")
+                summary_field("Decision Rationale", decision_context["decision_rationale"] or "—")
+                summary_field("Key Risks", decision_context["key_risks"] or "—")
+                summary_field("Falsification Summary", decision_context["falsification_summary"] or "—")
+                summary_field("Next Review Date", decision_context["next_review_date"] or "—")
+                summary_field("Created At", decision_context["created_at"] or "—")
+
+                st.divider()
+
+                review_horizon = st.selectbox(
+                    "Review Horizon",
+                    REVIEW_HORIZON_OPTIONS,
+                    key="thesis_review_horizon"
+                )
+
+                existing_review_df = fetch_dataframe(
+                    """
+                    SELECT *
+                    FROM thesis_reviews
+                    WHERE thesis_id = ? AND decision_log_id = ? AND review_horizon = ?
+                    LIMIT 1
+                    """,
+                    (thesis_id, decision_log_id, review_horizon)
+                )
+                existing_review = existing_review_df.iloc[0] if not existing_review_df.empty else None
+
+                default_review_date = datetime.now().date()
+                if existing_review is not None and pd.notna(existing_review["review_date"]):
+                    default_review_date = pd.to_datetime(existing_review["review_date"]).date()
+
+                default_outcome_type_idx = 0
+                if existing_review is not None and pd.notna(existing_review["outcome_attribution_type"]):
+                    existing_outcome_type = str(existing_review["outcome_attribution_type"])
+                    if existing_outcome_type in OUTCOME_TYPE_OPTIONS:
+                        default_outcome_type_idx = OUTCOME_TYPE_OPTIONS.index(existing_outcome_type)
+
+                with st.form("thesis_review_form"):
+                    review_date = st.date_input(
+                        "Review Date",
+                        value=default_review_date,
+                        key="thesis_review_date"
+                    )
+
+                    outcome_attribution_type = st.selectbox(
+                        "Outcome Attribution Type",
+                        OUTCOME_TYPE_OPTIONS,
+                        index=default_outcome_type_idx,
+                        key="thesis_review_outcome_type"
+                    )
+
+                    outcome_summary = st.text_area(
+                        "Outcome Summary",
+                        value=existing_review["outcome_summary"] if existing_review is not None and pd.notna(existing_review["outcome_summary"]) else "",
+                        height=90,
+                        key="thesis_review_outcome_summary"
+                    )
+
+                    outcome_evidence = st.text_area(
+                        "Outcome Evidence",
+                        value=existing_review["outcome_evidence"] if existing_review is not None and pd.notna(existing_review["outcome_evidence"]) else "",
+                        height=90,
+                        key="thesis_review_outcome_evidence"
+                    )
+
+                    thesis_quality_assessment = st.text_area(
+                        "Thesis Quality Assessment",
+                        value=existing_review["thesis_quality_assessment"] if existing_review is not None and pd.notna(existing_review["thesis_quality_assessment"]) else "",
+                        height=90,
+                        key="thesis_review_quality_assessment"
+                    )
+
+                    decision_quality_preserved = st.checkbox(
+                        "Decision Quality Preserved",
+                        value=bool(existing_review["decision_quality_preserved"]) if existing_review is not None and pd.notna(existing_review["decision_quality_preserved"]) else True,
+                        key="thesis_review_decision_quality_preserved"
+                    )
+
+                    decision_quality_notes = st.text_area(
+                        "Decision Quality Notes",
+                        value=existing_review["decision_quality_notes"] if existing_review is not None and pd.notna(existing_review["decision_quality_notes"]) else "",
+                        height=90,
+                        key="thesis_review_decision_quality_notes"
+                    )
+
+                    framework_review_eligible = 1 if outcome_attribution_type == OUTCOME_TYPE_A else 0
+                    st.write(
+                        f"Framework Review Consideration Eligible: {'Yes' if framework_review_eligible == 1 else 'No'}"
+                    )
+
+                    framework_notes = st.text_area(
+                        "Framework Notes",
+                        value=existing_review["framework_notes"] if existing_review is not None and pd.notna(existing_review["framework_notes"]) else "",
+                        height=90,
+                        key="thesis_review_framework_notes"
+                    )
+
+                    reviewer = st.text_input(
+                        "Reviewer",
+                        value=existing_review["reviewer"] if existing_review is not None and pd.notna(existing_review["reviewer"]) else (thesis["reviewer"] if thesis["reviewer"] else ""),
+                        key="thesis_review_reviewer"
+                    )
+
+                    review_submitted = st.form_submit_button("Save Thesis Review", use_container_width=True)
+
+                    if review_submitted:
+                        if not review_horizon:
+                            st.error("Review Horizon is required.")
+                        elif not outcome_attribution_type:
+                            st.error("Outcome Attribution Type is required.")
+                        elif not outcome_summary.strip():
+                            st.error("Outcome Summary is required.")
+                        elif not outcome_evidence.strip():
+                            st.error("Outcome Evidence is required.")
+                        elif not thesis_quality_assessment.strip():
+                            st.error("Thesis Quality Assessment is required.")
+                        elif not decision_quality_notes.strip():
+                            st.error("Decision Quality Notes is required.")
+                        elif not reviewer.strip():
+                            st.error("Reviewer is required.")
+                        else:
+                            review_exists_df = fetch_dataframe(
+                                """
+                                SELECT id
+                                FROM thesis_reviews
+                                WHERE thesis_id = ? AND decision_log_id = ? AND review_horizon = ?
+                                LIMIT 1
+                                """,
+                                (thesis_id, decision_log_id, review_horizon)
+                            )
+
+                            if not review_exists_df.empty:
+                                review_id = int(review_exists_df.iloc[0]["id"])
+                                run_query(
+                                    """
+                                    UPDATE thesis_reviews
+                                    SET review_date = ?,
+                                        outcome_summary = ?,
+                                        outcome_attribution_type = ?,
+                                        outcome_evidence = ?,
+                                        thesis_quality_assessment = ?,
+                                        decision_quality_preserved = ?,
+                                        decision_quality_notes = ?,
+                                        framework_review_eligible = ?,
+                                        framework_notes = ?,
+                                        reviewer = ?
+                                    WHERE id = ?
+                                    """,
+                                    (
+                                        review_date.isoformat() if review_date else None,
+                                        outcome_summary.strip(),
+                                        outcome_attribution_type,
+                                        outcome_evidence.strip(),
+                                        thesis_quality_assessment.strip(),
+                                        1 if decision_quality_preserved else 0,
+                                        decision_quality_notes.strip(),
+                                        framework_review_eligible,
+                                        framework_notes.strip() if framework_notes else None,
+                                        reviewer.strip(),
+                                        review_id
+                                    )
+                                )
+
+                                log_event(
+                                    thesis_id=thesis_id,
+                                    event_type=EVENT_THESIS_REVIEW_UPDATED,
+                                    description=(
+                                        f"Thesis review updated: decision_log_id={decision_log_id}, "
+                                        f"review_horizon={review_horizon}, "
+                                        f"outcome_attribution_type={outcome_attribution_type}, "
+                                        f"framework_review_eligible={framework_review_eligible}"
+                                    ),
+                                    created_by=reviewer.strip(),
+                                    version="1.0"
+                                )
+
+                                st.success("✓ Thesis review updated")
+                            else:
+                                insert_query(
+                                    """
+                                    INSERT INTO thesis_reviews
+                                    (
+                                        thesis_id,
+                                        decision_log_id,
+                                        review_date,
+                                        review_horizon,
+                                        outcome_summary,
+                                        outcome_attribution_type,
+                                        outcome_evidence,
+                                        thesis_quality_assessment,
+                                        decision_quality_preserved,
+                                        decision_quality_notes,
+                                        framework_review_eligible,
+                                        framework_notes,
+                                        reviewer,
+                                        created_at
+                                    )
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    """,
+                                    (
+                                        thesis_id,
+                                        decision_log_id,
+                                        review_date.isoformat() if review_date else None,
+                                        review_horizon,
+                                        outcome_summary.strip(),
+                                        outcome_attribution_type,
+                                        outcome_evidence.strip(),
+                                        thesis_quality_assessment.strip(),
+                                        1 if decision_quality_preserved else 0,
+                                        decision_quality_notes.strip(),
+                                        framework_review_eligible,
+                                        framework_notes.strip() if framework_notes else None,
+                                        reviewer.strip(),
+                                        datetime.now().isoformat()
+                                    )
+                                )
+
+                                log_event(
+                                    thesis_id=thesis_id,
+                                    event_type=EVENT_THESIS_REVIEW_CREATED,
+                                    description=(
+                                        f"Thesis review created: decision_log_id={decision_log_id}, "
+                                        f"review_horizon={review_horizon}, "
+                                        f"outcome_attribution_type={outcome_attribution_type}, "
+                                        f"framework_review_eligible={framework_review_eligible}"
+                                    ),
+                                    created_by=reviewer.strip(),
+                                    version="1.0"
+                                )
+
+                                st.success("✓ Thesis review created")
+
+                            st.rerun()
+
+                st.divider()
+                section_header("Existing Thesis Reviews")
+                reviews_df = fetch_dataframe(
+                    """
+                    SELECT
+                        review_horizon,
+                        review_date,
+                        outcome_attribution_type,
+                        framework_review_eligible,
+                        reviewer,
+                        created_at
+                    FROM thesis_reviews
+                    WHERE thesis_id = ?
+                    ORDER BY review_date DESC
+                    """,
+                    (thesis_id,)
+                )
+
+                if not reviews_df.empty:
+                    st.dataframe(reviews_df, use_container_width=True)
+                else:
+                    empty_state("No thesis reviews have been recorded for this thesis yet.")
 
         with tab9:
             gate_result = validate_decision_gate(thesis_id)
