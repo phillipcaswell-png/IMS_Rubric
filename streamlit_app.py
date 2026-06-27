@@ -332,6 +332,66 @@ def get_overview_metrics(thesis_id):
     }
 
 
+def get_business_evidence_coverage(thesis_id):
+    """Compute B1-B7 evidence coverage using exact related_pillar matching."""
+    business_pillars = ["B1", "B2", "B3", "B4", "B5", "B6", "B7"]
+    pillar_names = {
+        "B1": "Business Quality",
+        "B2": "Competitive Advantage",
+        "B3": "Revenue Quality",
+        "B4": "Financial Resilience",
+        "B5": "Execution Capability",
+        "B6": "Industry Position",
+        "B7": "Systems Importance"
+    }
+
+    coverage_rows = []
+    grade_priority = ["A", "B", "C", "D"]
+    for pillar_id in business_pillars:
+        pillar_df = fetch_dataframe(
+            """
+            SELECT evidence_grade, COUNT(*) AS item_count
+            FROM evidence_items
+            WHERE thesis_id = ? AND related_pillar = ?
+            GROUP BY evidence_grade
+            """,
+            (thesis_id, pillar_id)
+        )
+
+        grades = (
+            pillar_df["evidence_grade"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .tolist()
+        )
+
+        highest_grade = next(
+            (g for g in grade_priority if g in grades),
+            "—"
+        )
+
+        if pillar_df.empty:
+            coverage_status = "🔴 Missing"
+        else:
+            if any(grade in [GRADE_A, GRADE_B] for grade in grades):
+                coverage_status = "🟢 Supported"
+            else:
+                coverage_status = "🟡 Weak"
+
+        coverage_rows.append(
+            {
+                "Pillar": f"{pillar_id} — {pillar_names[pillar_id]}",
+                "Coverage": coverage_status,
+                "Evidence Items": int(pillar_df["item_count"].sum()) if not pillar_df.empty else 0,
+                "Grades Present": ", ".join(sorted(set(grades))) if grades else "—",
+                "Highest Grade": highest_grade,
+            }
+        )
+
+    return coverage_rows
+
+
 def build_thesis_json(thesis_id):
     """Build a comprehensive JSON export of a thesis with all related data."""
     # Get thesis
@@ -786,6 +846,20 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 with col2:
                     publication_date = st.date_input("Publication Date")
 
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    related_pillar = st.selectbox(
+                        "Related Business Pillar (Optional)",
+                        ["", "B1", "B2", "B3", "B4", "B5", "B6", "B7"]
+                    )
+
+                with col2:
+                    evidence_grade = st.selectbox(
+                        "Evidence Grade (Optional)",
+                        ["", GRADE_A, GRADE_B, GRADE_C, GRADE_D]
+                    )
+
                 url_or_citation = st.text_input("URL (Optional)", placeholder="https://...")
 
                 summary = st.text_area("Summary *", placeholder="Summarize the evidence", height=100)
@@ -837,17 +911,19 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             """
                             INSERT INTO evidence_items
                             (thesis_id, source_name, source_type, publication_date,
-                             url_or_citation, evidence_summary, created_at,
+                             evidence_grade, url_or_citation, related_pillar, evidence_summary, created_at,
                              title, source_publisher, key_takeaway, tags,
                              credibility_score, materiality_score, thesis_alignment)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 thesis_id,
                                 evidence_title.strip(),
                                 source_type,
                                 publication_date.isoformat() if publication_date else None,
+                                evidence_grade if evidence_grade else None,
                                 url_or_citation.strip() if url_or_citation else None,
+                                related_pillar if related_pillar else None,
                                 summary.strip(),
                                 datetime.now().isoformat(),
                                 evidence_title.strip(),
@@ -1127,6 +1203,13 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         
         with tab3:
             section_header("Business Quality Scoring")
+
+            coverage = get_business_evidence_coverage(thesis_id)
+            st.caption("Evidence Coverage")
+            st.dataframe(
+                pd.DataFrame(coverage),
+                use_container_width=True,
+            )
 
             pillar_options = [
                 "B1 Business Quality",
