@@ -194,6 +194,11 @@ def init_db():
         )
     """)
 
+    try:
+        cursor.execute("ALTER TABLE evidence_staging ADD COLUMN archive_reason TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS thesis_reviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -300,16 +305,28 @@ EVENT_EVIDENCE_REVIEWED = "Evidence Reviewed"
 EVENT_EVIDENCE_PROMOTED = "Evidence Promoted"
 EVENT_EVIDENCE_REJECTED = "Evidence Rejected"
 EVENT_EVIDENCE_PROMOTION_BLOCKED = "Evidence Promotion Blocked"
+EVENT_EVIDENCE_ARCHIVED = "Evidence Archived"
 
 INTAKE_STATUS_PENDING = "Pending"
 INTAKE_STATUS_REVIEWED = "Reviewed"
 INTAKE_STATUS_CONFIRMED = "Confirmed"
 INTAKE_STATUS_PROMOTED = "Promoted"
 INTAKE_STATUS_REJECTED = "Rejected"
+INTAKE_STATUS_ARCHIVED = "Archived"
+
+INTAKE_STATUS_OPTIONS = [
+    INTAKE_STATUS_PENDING,
+    INTAKE_STATUS_REVIEWED,
+    INTAKE_STATUS_CONFIRMED,
+    INTAKE_STATUS_PROMOTED,
+    INTAKE_STATUS_REJECTED,
+    INTAKE_STATUS_ARCHIVED,
+]
 
 TERMINAL_INTAKE_STATUSES = [
     INTAKE_STATUS_PROMOTED,
     INTAKE_STATUS_REJECTED,
+    INTAKE_STATUS_ARCHIVED,
 ]
 
 GRADE_A = "A"
@@ -638,6 +655,72 @@ def update_staged_evidence_status(
         return {"success": True, "message": "✓ Staged evidence marked as Rejected"}
 
     return {"success": False, "message": "Unsupported staged evidence transition."}
+
+
+def archive_staged_evidence(staging_uuid, analyst, archive_reason):
+    """Archive a staged evidence record without deleting audit history."""
+    staging_df = fetch_dataframe(
+        "SELECT * FROM evidence_staging WHERE staging_uuid = ? LIMIT 1",
+        (staging_uuid,),
+    )
+
+    if staging_df.empty:
+        return {
+            "success": False,
+            "message": "Staged evidence not found.",
+            "promoted_evidence_id": None,
+        }
+
+    staging_record = staging_df.iloc[0]
+    current_status = str(staging_record["intake_status"]).strip() if pd.notna(staging_record["intake_status"]) else INTAKE_STATUS_PENDING
+
+    if current_status in TERMINAL_INTAKE_STATUSES:
+        return {
+            "success": False,
+            "message": f"Archive blocked: terminal status '{current_status}'.",
+            "promoted_evidence_id": None,
+        }
+
+    if not archive_reason or not str(archive_reason).strip():
+        return {
+            "success": False,
+            "message": "Archive requires a non-empty archive_reason.",
+            "promoted_evidence_id": None,
+        }
+
+    analyst_value = analyst.strip() if analyst and str(analyst).strip() else "System"
+    run_query(
+        """
+        UPDATE evidence_staging
+        SET intake_status = ?,
+            archive_reason = ?,
+            reviewed_by = ?,
+            review_date = ?
+        WHERE staging_uuid = ?
+        """,
+        (
+            INTAKE_STATUS_ARCHIVED,
+            str(archive_reason).strip(),
+            analyst_value,
+            datetime.now().isoformat(),
+            staging_uuid,
+        ),
+    )
+
+    if pd.notna(staging_record["thesis_id"]):
+        log_event(
+            thesis_id=int(staging_record["thesis_id"]),
+            event_type=EVENT_EVIDENCE_ARCHIVED,
+            description=f"Evidence archived: staging_uuid={staging_uuid}",
+            created_by=analyst_value,
+            version="1.0",
+        )
+
+    return {
+        "success": True,
+        "message": "Staged evidence archived successfully.",
+        "promoted_evidence_id": None,
+    }
 
 
 def get_business_evidence_coverage(thesis_id):

@@ -15,9 +15,11 @@ from services import (
     get_linked_evidence_ids,
     sync_pillar_evidence_links,
     promote_staged_evidence,
+    archive_staged_evidence,
     build_thesis_json,
     validate_decision_gate,
     compute_hermes_inbox,
+    INTAKE_STATUS_ARCHIVED,
     create_thesis,
     stage_evidence,
     update_staged_evidence_status,
@@ -65,11 +67,13 @@ INTAKE_STATUS_OPTIONS = [
     INTAKE_STATUS_CONFIRMED,
     INTAKE_STATUS_PROMOTED,
     INTAKE_STATUS_REJECTED,
+    INTAKE_STATUS_ARCHIVED,
 ]
 
 TERMINAL_INTAKE_STATUSES = [
     INTAKE_STATUS_PROMOTED,
     INTAKE_STATUS_REJECTED,
+    INTAKE_STATUS_ARCHIVED,
 ]
 
 OUTCOME_TYPE_A = "Type A — Thesis Error"
@@ -768,6 +772,16 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
     
     if not thesis_df.empty:
         thesis = thesis_df.iloc[0]
+        thesis_validation_mode_enabled = int(thesis['validation_mode']) == 1 if pd.notna(thesis['validation_mode']) else False
+        thesis_cutoff_date = None
+        if pd.notna(thesis['evidence_cutoff_date']) and str(thesis['evidence_cutoff_date']).strip():
+            thesis_cutoff_date = pd.to_datetime(thesis['evidence_cutoff_date']).date()
+
+        default_validation_review_date = (
+            thesis_cutoff_date
+            if thesis_validation_mode_enabled and thesis_cutoff_date is not None
+            else datetime.now().date()
+        )
         
         # Company name as header
         st.header(thesis['company_name'])
@@ -1351,29 +1365,78 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     value=thesis['reviewer'] if thesis['reviewer'] else "System",
                     key="theia_intake_created_by"
                 )
+                intake_cutoff_acknowledged = st.checkbox(
+                    "I understand this evidence will remain in staging until it satisfies the constitutional promotion rules.",
+                    value=False,
+                    key="theia_intake_cutoff_ack"
+                )
 
                 intake_submitted = st.form_submit_button("Stage Evidence", use_container_width=True)
 
                 if intake_submitted:
-                    staging_uuid = stage_evidence(
-                        intake_thesis_id=intake_thesis_id,
-                        intake_source_type=intake_source_type,
-                        intake_source_name=intake_source_name,
-                        intake_source_url=intake_source_url,
-                        intake_publication_date=intake_publication_date,
-                        intake_retrieval_date=intake_retrieval_date,
-                        intake_author_publisher=intake_author_publisher,
-                        intake_evidence_summary=intake_evidence_summary,
-                        intake_key_takeaway=intake_key_takeaway,
-                        intake_preliminary_grade=intake_preliminary_grade,
-                        intake_source_quality_notes=intake_source_quality_notes,
-                        intake_duplicate_flag=intake_duplicate_flag,
-                        intake_duplicate_notes=intake_duplicate_notes,
-                        intake_created_by=intake_created_by,
-                    )
+                    requires_cutoff_advisory = False
+                    advisory_cutoff_date = None
 
-                    st.success(f"✓ Evidence staged with UUID: {staging_uuid}")
-                    st.rerun()
+                    if intake_thesis_id is not None:
+                        intake_thesis_df = fetch_dataframe(
+                            "SELECT validation_mode, evidence_cutoff_date FROM theses WHERE id = ? LIMIT 1",
+                            (int(intake_thesis_id),)
+                        )
+                        if not intake_thesis_df.empty:
+                            intake_thesis_row = intake_thesis_df.iloc[0]
+                            intake_validation_mode = int(intake_thesis_row["validation_mode"]) == 1 if pd.notna(intake_thesis_row["validation_mode"]) else False
+                            if intake_validation_mode and pd.notna(intake_thesis_row["evidence_cutoff_date"]) and str(intake_thesis_row["evidence_cutoff_date"]).strip():
+                                advisory_cutoff_date = pd.to_datetime(intake_thesis_row["evidence_cutoff_date"]).date()
+                                if intake_publication_date and intake_publication_date > advisory_cutoff_date:
+                                    requires_cutoff_advisory = True
+
+                    if requires_cutoff_advisory:
+                        st.warning(
+                            "Historical Validation Notice\n\n"
+                            f"This evidence was published after the historical evidence cutoff ({advisory_cutoff_date.isoformat()}). The evidence may still be staged for review, but it cannot be promoted into the thesis while historical validation mode remains active."
+                        )
+                        if not intake_cutoff_acknowledged:
+                            st.warning("Acknowledgment is required before staging this post-cutoff evidence.")
+                        else:
+                            staging_uuid = stage_evidence(
+                                intake_thesis_id=intake_thesis_id,
+                                intake_source_type=intake_source_type,
+                                intake_source_name=intake_source_name,
+                                intake_source_url=intake_source_url,
+                                intake_publication_date=intake_publication_date,
+                                intake_retrieval_date=intake_retrieval_date,
+                                intake_author_publisher=intake_author_publisher,
+                                intake_evidence_summary=intake_evidence_summary,
+                                intake_key_takeaway=intake_key_takeaway,
+                                intake_preliminary_grade=intake_preliminary_grade,
+                                intake_source_quality_notes=intake_source_quality_notes,
+                                intake_duplicate_flag=intake_duplicate_flag,
+                                intake_duplicate_notes=intake_duplicate_notes,
+                                intake_created_by=intake_created_by,
+                            )
+
+                            st.success(f"✓ Evidence staged with UUID: {staging_uuid}")
+                            st.rerun()
+                    else:
+                        staging_uuid = stage_evidence(
+                            intake_thesis_id=intake_thesis_id,
+                            intake_source_type=intake_source_type,
+                            intake_source_name=intake_source_name,
+                            intake_source_url=intake_source_url,
+                            intake_publication_date=intake_publication_date,
+                            intake_retrieval_date=intake_retrieval_date,
+                            intake_author_publisher=intake_author_publisher,
+                            intake_evidence_summary=intake_evidence_summary,
+                            intake_key_takeaway=intake_key_takeaway,
+                            intake_preliminary_grade=intake_preliminary_grade,
+                            intake_source_quality_notes=intake_source_quality_notes,
+                            intake_duplicate_flag=intake_duplicate_flag,
+                            intake_duplicate_notes=intake_duplicate_notes,
+                            intake_created_by=intake_created_by,
+                        )
+
+                        st.success(f"✓ Evidence staged with UUID: {staging_uuid}")
+                        st.rerun()
 
             st.divider()
             section_header("Theia Intake Review Queue")
@@ -1405,6 +1468,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         "source_type",
                         "preliminary_grade",
                         "duplicate_flag",
+                        "archive_reason",
                         "reviewed_by",
                         "review_date",
                         "promoted_evidence_id",
@@ -1419,6 +1483,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         "source_type": "Source Type",
                         "preliminary_grade": "Prelim Grade",
                         "duplicate_flag": "Duplicate",
+                        "archive_reason": "Archive Reason",
                         "reviewed_by": "Reviewed By",
                         "review_date": "Review Date",
                         "promoted_evidence_id": "Promoted Evidence ID",
@@ -1456,10 +1521,16 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         key="theia_rejection_reason"
                     )
 
+                    archive_reason_input = st.text_area(
+                        "Archive Reason (required for archive)",
+                        value="",
+                        key="theia_archive_reason"
+                    )
+
                     if current_status in TERMINAL_INTAKE_STATUSES:
                         st.info(f"Status is terminal ({current_status}). No further status transitions are allowed.")
                     else:
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns(4)
                         with col1:
                             if current_status == INTAKE_STATUS_PENDING and st.button("Mark as Reviewed", key="theia_mark_reviewed"):
                                 result = update_staged_evidence_status(
@@ -1501,6 +1572,18 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                     st.success(result["message"])
                                     st.rerun()
                                 st.error(result["message"])
+
+                        with col4:
+                            if st.button("Archive Staged Evidence", key="theia_archive_staged"):
+                                archive_result = archive_staged_evidence(
+                                    staging_uuid=selected_staging_uuid,
+                                    analyst=reviewer_name,
+                                    archive_reason=archive_reason_input,
+                                )
+                                if archive_result["success"]:
+                                    st.success(archive_result["message"])
+                                    st.rerun()
+                                st.error(archive_result["message"])
 
                         if current_status == INTAKE_STATUS_CONFIRMED:
                             if st.button("Promote to Evidence Repository", key="theia_promote_confirmed"):
@@ -1640,7 +1723,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 with col2:
                     review_date = st.date_input(
                         "Review Date",
-                        value=pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else datetime.now().date()
+                        value=pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else default_validation_review_date
                     )
 
                 submitted = st.form_submit_button("Save Business Quality Score", use_container_width=True)
@@ -1881,7 +1964,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 with col2:
                     review_date = st.date_input(
                         "Review Date",
-                        value=pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else datetime.now().date(),
+                        value=pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else default_validation_review_date,
                         key="invest_date"
                     )
                 
@@ -2034,7 +2117,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 )
                 existing_review = existing_review_df.iloc[0] if not existing_review_df.empty else None
 
-                default_review_date = datetime.now().date()
+                default_review_date = default_validation_review_date
                 if existing_review is not None and pd.notna(existing_review["review_date"]):
                     default_review_date = pd.to_datetime(existing_review["review_date"]).date()
 

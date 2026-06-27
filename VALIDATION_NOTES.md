@@ -282,3 +282,20 @@ Minimum required fields for save: review_horizon, outcome_attribution_type,
 reviewer. All narrative fields optional at initial classification.
 
 Status: Validated — fix applied during Meta 2012 validation Phase 7
+
+### MVP-019B Implementation Update
+
+Scope implemented (frozen MVP-019B):
+
+- FRICTION-003 implemented.
+- CANDIDATE-001 promoted from Hypothesis to Validated and implemented as advisory intake publication-date validation.
+- CANDIDATE-013 implemented as archive lifecycle for staged evidence.
+
+Resolution notes:
+
+- OBS-001 resolved through defense-in-depth behavior:
+	advisory notice at intake, constitutional enforcement at promotion.
+
+Repository governance note:
+
+- CANDIDATE-002 through CANDIDATE-012 are retired from the roadmap because no governed repository artifact exists.
