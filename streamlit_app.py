@@ -30,6 +30,8 @@ from services import (
     INTAKE_STATUS_ARCHIVED,
     create_thesis,
     stage_evidence,
+    update_evidence_item,
+    update_staged_evidence_source_text,
     update_staged_evidence_status,
     save_pillar_score,
     record_decision,
@@ -1147,6 +1149,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     publication_date,
                     COALESCE(evidence_summary, '') AS summary,
                     key_takeaway,
+                    source_text,
                     tags,
                     credibility_score,
                     materiality_score,
@@ -1179,6 +1182,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         publication_date,
                         COALESCE(evidence_summary, '') AS summary,
                         key_takeaway,
+                        source_text,
                         tags,
                         credibility_score,
                         materiality_score,
@@ -1270,6 +1274,13 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             height=80
                         )
 
+                        edit_source_text = st.text_area(
+                            "Relevant Source Text (Optional)",
+                            value=selected_evidence['source_text'] if pd.notna(selected_evidence['source_text']) else "",
+                            height=160,
+                            help="Paste the sections of the document most relevant to your assessment. Full documents are accepted, but focused excerpts produce better extraction results."
+                        )
+
                         edit_tags = st.text_input(
                             "Tags",
                             value=selected_evidence['tags'] if pd.notna(selected_evidence['tags']) else ""
@@ -1313,53 +1324,31 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             elif not edit_key_takeaway.strip():
                                 st.error("Key Takeaway is required.")
                             else:
-                                run_query(
-                                    """
-                                    UPDATE evidence_items
-                                    SET source_name = ?,
-                                        title = ?,
-                                        source_type = ?,
-                                        source_publisher = ?,
-                                        url_or_citation = ?,
-                                        publication_date = ?,
-                                        evidence_summary = ?,
-                                        key_takeaway = ?,
-                                        tags = ?,
-                                        credibility_score = ?,
-                                        materiality_score = ?,
-                                        thesis_alignment = ?
-                                    WHERE id = ? AND thesis_id = ?
-                                    """,
-                                    (
-                                        edit_title.strip(),
-                                        edit_title.strip(),
-                                        edit_source_type,
-                                        edit_source_publisher.strip(),
-                                        edit_url.strip() if edit_url else None,
-                                        edit_publication_date.isoformat() if edit_publication_date else None,
-                                        edit_summary.strip(),
-                                        edit_key_takeaway.strip(),
-                                        edit_tags.strip() if edit_tags else None,
-                                        int(edit_credibility_score),
-                                        int(edit_materiality_score),
-                                        edit_thesis_alignment,
-                                        st.session_state['selected_evidence_id'],
-                                        thesis_id
-                                    )
-                                )
-
-                                event_created_by = thesis['reviewer'] if thesis['reviewer'] else "System"
-                                log_event(
+                                updated = update_evidence_item(
+                                    evidence_item_id=st.session_state['selected_evidence_id'],
+                                    source_name=edit_title.strip(),
+                                    title=edit_title.strip(),
+                                    source_type=edit_source_type,
+                                    source_publisher=edit_source_publisher.strip(),
+                                    url_or_citation=edit_url.strip() if edit_url else None,
+                                    publication_date=edit_publication_date.isoformat() if edit_publication_date else None,
+                                    evidence_summary=edit_summary.strip(),
+                                    key_takeaway=edit_key_takeaway.strip(),
+                                    source_text=edit_source_text,
+                                    tags=edit_tags.strip() if edit_tags else None,
+                                    credibility_score=int(edit_credibility_score),
+                                    materiality_score=int(edit_materiality_score),
+                                    thesis_alignment=edit_thesis_alignment,
                                     thesis_id=thesis_id,
-                                    event_type=EVENT_EVIDENCE_UPDATED,
-                                    description=f"Evidence item updated: {edit_title.strip()}",
-                                    created_by=event_created_by,
-                                    version="1.0"
+                                    updated_by=thesis['reviewer'] if thesis['reviewer'] else "System",
                                 )
 
-                                st.success("✓ Evidence item updated")
-                                st.session_state['selected_evidence_id'] = None
-                                st.rerun()
+                                if not updated:
+                                    st.error("Evidence item update failed.")
+                                else:
+                                    st.success("✓ Evidence item updated")
+                                    st.session_state['selected_evidence_id'] = None
+                                    st.rerun()
 
                     st.write("")
                     confirm = st.checkbox("Confirm deletion of this evidence item")
@@ -1445,6 +1434,12 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 intake_author_publisher = st.text_input("Author / Publisher", key="theia_intake_author_publisher")
                 intake_evidence_summary = st.text_area("Evidence Summary", height=90, key="theia_intake_summary")
                 intake_key_takeaway = st.text_area("Key Takeaway", height=90, key="theia_intake_key_takeaway")
+                intake_source_text = st.text_area(
+                    "Relevant Source Text",
+                    height=180,
+                    key="theia_intake_source_text",
+                    help="Paste the sections of the document most relevant to your assessment. Full documents are accepted, but focused excerpts produce better extraction results."
+                )
                 intake_source_quality_notes = st.text_area("Source Quality Notes", height=90, key="theia_intake_quality_notes")
 
                 intake_duplicate_flag = st.checkbox("Duplicate Flag", value=False, key="theia_intake_duplicate_flag")
@@ -1504,6 +1499,11 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                 intake_created_by=intake_created_by,
                             )
 
+                            update_staged_evidence_source_text(
+                                staging_uuid=staging_uuid,
+                                source_text=intake_source_text,
+                            )
+
                             st.success(f"✓ Evidence staged with UUID: {staging_uuid}")
                             st.rerun()
                     else:
@@ -1522,6 +1522,11 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             intake_duplicate_flag=intake_duplicate_flag,
                             intake_duplicate_notes=intake_duplicate_notes,
                             intake_created_by=intake_created_by,
+                        )
+
+                        update_staged_evidence_source_text(
+                            staging_uuid=staging_uuid,
+                            source_text=intake_source_text,
                         )
 
                         st.success(f"✓ Evidence staged with UUID: {staging_uuid}")

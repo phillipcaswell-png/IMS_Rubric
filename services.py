@@ -115,6 +115,11 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN source_text TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.execute(
         """
         UPDATE evidence_items
@@ -244,6 +249,11 @@ def init_db():
 
     try:
         cursor.execute("ALTER TABLE evidence_staging ADD COLUMN archive_reason TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evidence_staging ADD COLUMN source_text TEXT DEFAULT NULL")
     except sqlite3.OperationalError:
         pass
 
@@ -651,6 +661,139 @@ def stage_evidence(
         )
 
     return staging_uuid
+
+
+def update_staged_evidence_source_text(staging_uuid, source_text):
+    """Update source_text for a staged evidence record without changing status transitions."""
+    run_query(
+        """
+        UPDATE evidence_staging
+        SET source_text = ?
+        WHERE staging_uuid = ?
+        """,
+        (
+            str(source_text).strip() if source_text is not None and str(source_text).strip() else None,
+            str(staging_uuid).strip(),
+        ),
+    )
+
+
+def update_evidence_source_text(evidence_item_id: int, source_text: str, updated_by: str) -> bool:
+    """Update source_text for a promoted evidence item."""
+    evidence_id_value = int(evidence_item_id)
+    updated_by_value = str(updated_by).strip() if updated_by is not None else ""
+    if not updated_by_value:
+        return False
+
+    run_query(
+        """
+        UPDATE evidence_items
+        SET source_text = ?
+        WHERE id = ? AND status = ?
+        """,
+        (
+            str(source_text).strip() if source_text is not None and str(source_text).strip() else None,
+            evidence_id_value,
+            INTAKE_STATUS_PROMOTED,
+        ),
+    )
+
+    verification_df = fetch_dataframe(
+        """
+        SELECT id
+        FROM evidence_items
+        WHERE id = ? AND status = ?
+        LIMIT 1
+        """,
+        (evidence_id_value, INTAKE_STATUS_PROMOTED),
+    )
+    return not verification_df.empty
+
+
+def update_evidence_item(
+    evidence_item_id: int,
+    source_name: str,
+    title: str,
+    source_type: str,
+    source_publisher: str,
+    url_or_citation: str,
+    publication_date,
+    evidence_summary: str,
+    key_takeaway: str,
+    source_text: str,
+    tags: str,
+    credibility_score: int,
+    materiality_score: int,
+    thesis_alignment: str,
+    thesis_id: int,
+    updated_by: str,
+) -> bool:
+    """Update a promoted evidence item and log the evidence-updated event."""
+    evidence_id_value = int(evidence_item_id)
+    thesis_id_value = int(thesis_id)
+
+    exists_df = fetch_dataframe(
+        """
+        SELECT id
+        FROM evidence_items
+        WHERE id = ? AND thesis_id = ?
+        LIMIT 1
+        """,
+        (evidence_id_value, thesis_id_value),
+    )
+    if exists_df.empty:
+        return False
+
+    source_name_value = str(source_name).strip() if source_name is not None else ""
+    title_value = str(title).strip() if title is not None else ""
+
+    run_query(
+        """
+        UPDATE evidence_items
+        SET source_name = ?,
+            title = ?,
+            source_type = ?,
+            source_publisher = ?,
+            url_or_citation = ?,
+            publication_date = ?,
+            evidence_summary = ?,
+            key_takeaway = ?,
+            source_text = ?,
+            tags = ?,
+            credibility_score = ?,
+            materiality_score = ?,
+            thesis_alignment = ?
+        WHERE id = ? AND thesis_id = ?
+        """,
+        (
+            source_name_value,
+            title_value,
+            str(source_type).strip() if source_type is not None and str(source_type).strip() else None,
+            str(source_publisher).strip() if source_publisher is not None and str(source_publisher).strip() else None,
+            str(url_or_citation).strip() if url_or_citation is not None and str(url_or_citation).strip() else None,
+            str(publication_date).strip() if publication_date is not None and str(publication_date).strip() else None,
+            str(evidence_summary).strip() if evidence_summary is not None and str(evidence_summary).strip() else None,
+            str(key_takeaway).strip() if key_takeaway is not None and str(key_takeaway).strip() else None,
+            str(source_text).strip() if source_text is not None and str(source_text).strip() else None,
+            str(tags).strip() if tags is not None and str(tags).strip() else None,
+            int(credibility_score) if credibility_score is not None else None,
+            int(materiality_score) if materiality_score is not None else None,
+            str(thesis_alignment).strip() if thesis_alignment is not None and str(thesis_alignment).strip() else None,
+            evidence_id_value,
+            thesis_id_value,
+        ),
+    )
+
+    created_by_value = str(updated_by).strip() if updated_by is not None and str(updated_by).strip() else "System"
+    log_event(
+        thesis_id=thesis_id_value,
+        event_type=EVENT_EVIDENCE_UPDATED,
+        description=f"Evidence item updated: {title_value}",
+        created_by=created_by_value,
+        version="1.0",
+    )
+
+    return True
 
 
 def update_staged_evidence_status(
@@ -1067,12 +1210,13 @@ def promote_staged_evidence(staging_uuid, analyst):
             title,
             source_publisher,
             key_takeaway,
+            source_text,
             tags,
             credibility_score,
             materiality_score,
             thesis_alignment
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             int(staging_record["thesis_id"]),
@@ -1088,6 +1232,7 @@ def promote_staged_evidence(staging_uuid, analyst):
             staging_record["source_name"] if pd.notna(staging_record["source_name"]) else None,
             staging_record["author_publisher"] if pd.notna(staging_record["author_publisher"]) else None,
             staging_record["key_takeaway"] if pd.notna(staging_record["key_takeaway"]) else None,
+            staging_record["source_text"] if "source_text" in staging_record.index and pd.notna(staging_record["source_text"]) else None,
             None,
             None,
             None,
