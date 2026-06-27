@@ -110,6 +110,54 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        cursor.execute("ALTER TABLE evidence_items ADD COLUMN status TEXT DEFAULT 'Promoted'")
+    except sqlite3.OperationalError:
+        pass
+
+    cursor.execute(
+        """
+        UPDATE evidence_items
+        SET status = 'Promoted'
+        WHERE status IS NULL OR TRIM(status) = ''
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evidence_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evidence_item_id INTEGER NOT NULL,
+            pillar_id TEXT,
+            observation_category TEXT NOT NULL,
+            observation_text TEXT NOT NULL,
+            evidence_quote TEXT,
+            source_location TEXT,
+            analyst_confidence TEXT,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT DEFAULT 'Active',
+            FOREIGN KEY (evidence_item_id) REFERENCES evidence_items(id)
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thesis_id INTEGER,
+            event_type TEXT NOT NULL,
+            entity_type TEXT,
+            entity_id INTEGER,
+            details TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            version TEXT
+        )
+        """
+    )
+
     # Pillar scores table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pillar_scores (
@@ -306,6 +354,8 @@ EVENT_EVIDENCE_PROMOTED = "Evidence Promoted"
 EVENT_EVIDENCE_REJECTED = "Evidence Rejected"
 EVENT_EVIDENCE_PROMOTION_BLOCKED = "Evidence Promotion Blocked"
 EVENT_EVIDENCE_ARCHIVED = "Evidence Archived"
+EVENT_EVIDENCE_OBSERVATION_CREATED = "Evidence Observation Created"
+EVENT_EVIDENCE_OBSERVATION_UPDATED = "Evidence Observation Updated"
 
 INTAKE_STATUS_PENDING = "Pending"
 INTAKE_STATUS_REVIEWED = "Reviewed"
@@ -333,6 +383,33 @@ GRADE_A = "A"
 GRADE_B = "B"
 GRADE_C = "C"
 GRADE_D = "D"
+
+OBSERVATION_STATUS_ACTIVE = "Active"
+OBSERVATION_STATUS_INACTIVE = "Inactive"
+OBSERVATION_STATUS_OPTIONS = [
+    OBSERVATION_STATUS_ACTIVE,
+    OBSERVATION_STATUS_INACTIVE,
+]
+
+OBSERVATION_CATEGORY_FACT = "Fact"
+OBSERVATION_CATEGORY_MANAGEMENT_STATEMENT = "Management Statement"
+OBSERVATION_CATEGORY_RISK_DISCLOSURE = "Risk Disclosure"
+OBSERVATION_CATEGORY_CAPITAL_ALLOCATION = "Capital Allocation"
+OBSERVATION_CATEGORY_FINANCIAL_TREND = "Financial Trend"
+OBSERVATION_CATEGORY_COMPETITIVE_POSITION = "Competitive Position"
+OBSERVATION_CATEGORY_INDUSTRY_OBSERVATION = "Industry Observation"
+OBSERVATION_CATEGORY_OTHER = "Other"
+
+OBSERVATION_CATEGORY_OPTIONS = [
+    OBSERVATION_CATEGORY_FACT,
+    OBSERVATION_CATEGORY_MANAGEMENT_STATEMENT,
+    OBSERVATION_CATEGORY_RISK_DISCLOSURE,
+    OBSERVATION_CATEGORY_CAPITAL_ALLOCATION,
+    OBSERVATION_CATEGORY_FINANCIAL_TREND,
+    OBSERVATION_CATEGORY_COMPETITIVE_POSITION,
+    OBSERVATION_CATEGORY_INDUSTRY_OBSERVATION,
+    OBSERVATION_CATEGORY_OTHER,
+]
 
 OUTCOME_TYPE_A = "Type A — Thesis Error"
 OUTCOME_TYPE_B = "Type B — Execution Error"
@@ -1051,6 +1128,347 @@ def promote_staged_evidence(staging_uuid, analyst):
         "message": "Staged evidence promoted successfully.",
         "promoted_evidence_id": int(promoted_evidence_id),
     }
+
+
+def _normalize_observation_status(status):
+    if status is None:
+        return OBSERVATION_STATUS_ACTIVE
+    normalized = str(status).strip()
+    if not normalized:
+        return OBSERVATION_STATUS_ACTIVE
+    if normalized not in OBSERVATION_STATUS_OPTIONS:
+        raise ValueError(
+            f"Invalid observation status '{normalized}'. Allowed: {', '.join(OBSERVATION_STATUS_OPTIONS)}"
+        )
+    return normalized
+
+
+def _normalize_observation_category(observation_category):
+    normalized = str(observation_category).strip() if observation_category is not None else ""
+    if not normalized:
+        raise ValueError("observation_category is required.")
+    if normalized not in OBSERVATION_CATEGORY_OPTIONS:
+        raise ValueError(
+            f"Invalid observation_category '{normalized}'. Allowed: {', '.join(OBSERVATION_CATEGORY_OPTIONS)}"
+        )
+    return normalized
+
+
+def _resolve_promoted_evidence_item(evidence_item_id):
+    evidence_df = fetch_dataframe(
+        """
+        SELECT id, thesis_id, COALESCE(status, 'Promoted') AS status
+        FROM evidence_items
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (int(evidence_item_id),),
+    )
+
+    if evidence_df.empty:
+        return {
+            "ok": False,
+            "message": "Observation blocked: evidence_item does not exist in evidence_items (promoted state).",
+            "thesis_id": None,
+        }
+
+    record = evidence_df.iloc[0]
+    status = str(record["status"]).strip() if pd.notna(record["status"]) else "Promoted"
+    if status != INTAKE_STATUS_PROMOTED:
+        return {
+            "ok": False,
+            "message": f"Observation blocked: evidence_item status is '{status}', must be '{INTAKE_STATUS_PROMOTED}'.",
+            "thesis_id": int(record["thesis_id"]) if pd.notna(record["thesis_id"]) else None,
+        }
+
+    return {
+        "ok": True,
+        "message": "ok",
+        "thesis_id": int(record["thesis_id"]) if pd.notna(record["thesis_id"]) else None,
+    }
+
+
+def create_evidence_observation(
+    evidence_item_id,
+    pillar_id,
+    observation_category,
+    observation_text,
+    evidence_quote,
+    source_location,
+    analyst_confidence,
+    created_by,
+    status=OBSERVATION_STATUS_ACTIVE,
+):
+    """Create a governed analyst observation for a promoted evidence item only."""
+    promotion_check = _resolve_promoted_evidence_item(evidence_item_id)
+    if not promotion_check["ok"]:
+        return {
+            "success": False,
+            "message": promotion_check["message"],
+            "observation_id": None,
+        }
+
+    category = _normalize_observation_category(observation_category)
+    normalized_status = _normalize_observation_status(status)
+    text_value = str(observation_text).strip() if observation_text is not None else ""
+    created_by_value = str(created_by).strip() if created_by is not None else ""
+
+    if not text_value:
+        raise ValueError("observation_text is required.")
+    if not created_by_value:
+        raise ValueError("created_by is required.")
+
+    observation_id = insert_query(
+        """
+        INSERT INTO evidence_observations
+        (
+            evidence_item_id,
+            pillar_id,
+            observation_category,
+            observation_text,
+            evidence_quote,
+            source_location,
+            analyst_confidence,
+            created_by,
+            created_at,
+            status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            int(evidence_item_id),
+            str(pillar_id).strip() if pillar_id is not None and str(pillar_id).strip() else None,
+            category,
+            text_value,
+            str(evidence_quote).strip() if evidence_quote is not None and str(evidence_quote).strip() else None,
+            str(source_location).strip() if source_location is not None and str(source_location).strip() else None,
+            str(analyst_confidence).strip() if analyst_confidence is not None and str(analyst_confidence).strip() else None,
+            created_by_value,
+            datetime.now().isoformat(),
+            normalized_status,
+        ),
+    )
+
+    log_event(
+        thesis_id=promotion_check["thesis_id"],
+        event_type=EVENT_EVIDENCE_OBSERVATION_CREATED,
+        description=(
+            f"Observation created: observation_id={observation_id}, "
+            f"evidence_item_id={int(evidence_item_id)}, pillar_id={pillar_id if pillar_id else '—'}"
+        ),
+        created_by=created_by_value,
+        version="1.0",
+    )
+
+    run_query(
+        """
+        INSERT INTO audit_events
+        (
+            thesis_id,
+            event_type,
+            entity_type,
+            entity_id,
+            details,
+            created_by,
+            created_at,
+            version
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            promotion_check["thesis_id"],
+            EVENT_EVIDENCE_OBSERVATION_CREATED,
+            "evidence_observation",
+            int(observation_id),
+            (
+                f"Created observation for evidence_item_id={int(evidence_item_id)}|"
+                f"pillar_id={pillar_id if pillar_id else ''}|"
+                f"category={category}|status={normalized_status}"
+            ),
+            created_by_value,
+            datetime.now().isoformat(),
+            "1.0",
+        ),
+    )
+
+    return {
+        "success": True,
+        "message": "Observation created successfully.",
+        "observation_id": int(observation_id),
+    }
+
+
+def update_evidence_observation(
+    observation_id,
+    pillar_id,
+    observation_category,
+    observation_text,
+    evidence_quote,
+    source_location,
+    analyst_confidence,
+    status,
+    updated_by,
+):
+    """Update a governed analyst observation and emit audit events."""
+    observation_df = fetch_dataframe(
+        """
+        SELECT eo.id, eo.evidence_item_id, ei.thesis_id
+        FROM evidence_observations eo
+        JOIN evidence_items ei ON ei.id = eo.evidence_item_id
+        WHERE eo.id = ?
+        LIMIT 1
+        """,
+        (int(observation_id),),
+    )
+
+    if observation_df.empty:
+        return {
+            "success": False,
+            "message": "Observation not found.",
+        }
+
+    observation_row = observation_df.iloc[0]
+    evidence_item_id = int(observation_row["evidence_item_id"])
+    thesis_id = int(observation_row["thesis_id"]) if pd.notna(observation_row["thesis_id"]) else None
+
+    promotion_check = _resolve_promoted_evidence_item(evidence_item_id)
+    if not promotion_check["ok"]:
+        return {
+            "success": False,
+            "message": promotion_check["message"],
+        }
+
+    category = _normalize_observation_category(observation_category)
+    normalized_status = _normalize_observation_status(status)
+    text_value = str(observation_text).strip() if observation_text is not None else ""
+    updated_by_value = str(updated_by).strip() if updated_by is not None else ""
+
+    if not text_value:
+        raise ValueError("observation_text is required.")
+    if not updated_by_value:
+        raise ValueError("updated_by is required.")
+
+    run_query(
+        """
+        UPDATE evidence_observations
+        SET pillar_id = ?,
+            observation_category = ?,
+            observation_text = ?,
+            evidence_quote = ?,
+            source_location = ?,
+            analyst_confidence = ?,
+            status = ?
+        WHERE id = ?
+        """,
+        (
+            str(pillar_id).strip() if pillar_id is not None and str(pillar_id).strip() else None,
+            category,
+            text_value,
+            str(evidence_quote).strip() if evidence_quote is not None and str(evidence_quote).strip() else None,
+            str(source_location).strip() if source_location is not None and str(source_location).strip() else None,
+            str(analyst_confidence).strip() if analyst_confidence is not None and str(analyst_confidence).strip() else None,
+            normalized_status,
+            int(observation_id),
+        ),
+    )
+
+    log_event(
+        thesis_id=thesis_id,
+        event_type=EVENT_EVIDENCE_OBSERVATION_UPDATED,
+        description=(
+            f"Observation updated: observation_id={int(observation_id)}, "
+            f"evidence_item_id={evidence_item_id}, pillar_id={pillar_id if pillar_id else '—'}"
+        ),
+        created_by=updated_by_value,
+        version="1.0",
+    )
+
+    run_query(
+        """
+        INSERT INTO audit_events
+        (
+            thesis_id,
+            event_type,
+            entity_type,
+            entity_id,
+            details,
+            created_by,
+            created_at,
+            version
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            thesis_id,
+            EVENT_EVIDENCE_OBSERVATION_UPDATED,
+            "evidence_observation",
+            int(observation_id),
+            (
+                f"Updated observation for evidence_item_id={evidence_item_id}|"
+                f"pillar_id={pillar_id if pillar_id else ''}|"
+                f"category={category}|status={normalized_status}"
+            ),
+            updated_by_value,
+            datetime.now().isoformat(),
+            "1.0",
+        ),
+    )
+
+    return {
+        "success": True,
+        "message": "Observation updated successfully.",
+    }
+
+
+def get_observations_for_evidence(evidence_item_id):
+    """Return governed observations for a specific promoted evidence item."""
+    return fetch_dataframe(
+        """
+        SELECT
+            eo.id,
+            eo.evidence_item_id,
+            eo.pillar_id,
+            eo.observation_category,
+            eo.observation_text,
+            eo.evidence_quote,
+            eo.source_location,
+            eo.analyst_confidence,
+            eo.created_by,
+            eo.created_at,
+            eo.status
+        FROM evidence_observations eo
+        WHERE eo.evidence_item_id = ?
+        ORDER BY eo.id DESC
+        """,
+        (int(evidence_item_id),),
+    )
+
+
+def get_observations_for_pillar(thesis_id, pillar_id):
+    """Return observations for a thesis + pillar by joining through evidence_items."""
+    return fetch_dataframe(
+        """
+        SELECT
+            eo.id,
+            eo.evidence_item_id,
+            ei.thesis_id,
+            eo.pillar_id,
+            eo.observation_category,
+            eo.observation_text,
+            eo.evidence_quote,
+            eo.source_location,
+            eo.analyst_confidence,
+            eo.created_by,
+            eo.created_at,
+            eo.status
+        FROM evidence_observations eo
+        JOIN evidence_items ei ON eo.evidence_item_id = ei.id
+        WHERE ei.thesis_id = ?
+          AND eo.pillar_id = ?
+        ORDER BY eo.id DESC
+        """,
+        (int(thesis_id), str(pillar_id).strip()),
+    )
 
 
 # =============================================================================
@@ -1959,6 +2377,33 @@ def log_event(
         (
             thesis_id,
             event_type,
+            description,
+            created_by,
+            datetime.now().isoformat(),
+            version,
+        ),
+    )
+
+    run_query(
+        """
+        INSERT INTO audit_events
+        (
+            thesis_id,
+            event_type,
+            entity_type,
+            entity_id,
+            details,
+            created_by,
+            created_at,
+            version
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            thesis_id,
+            event_type,
+            "thesis",
+            thesis_id,
             description,
             created_by,
             datetime.now().isoformat(),

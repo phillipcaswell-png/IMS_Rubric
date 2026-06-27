@@ -12,14 +12,21 @@ from services import (
     get_overview_metrics,
     get_business_evidence_coverage,
     get_available_evidence_items,
+    get_observations_for_evidence,
+    get_observations_for_pillar,
     get_linked_evidence_ids,
     sync_pillar_evidence_links,
     promote_staged_evidence,
     archive_staged_evidence,
+    create_evidence_observation,
+    update_evidence_observation,
     build_thesis_json,
     validate_decision_gate,
     compute_hermes_inbox,
     get_athena_prebrief,
+    OBSERVATION_CATEGORY_OPTIONS,
+    OBSERVATION_STATUS_OPTIONS,
+    OBSERVATION_STATUS_ACTIVE,
     INTAKE_STATUS_ARCHIVED,
     create_thesis,
     stage_evidence,
@@ -1678,6 +1685,230 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                     st.rerun()
                                 else:
                                     st.error(promotion_result["message"])
+
+            st.divider()
+            section_header("Governed Evidence Observations (MVP-022)")
+
+            promoted_evidence_df = fetch_dataframe(
+                """
+                SELECT id, title, source_name, publication_date, evidence_grade
+                FROM evidence_items
+                WHERE thesis_id = ? AND COALESCE(status, 'Promoted') = 'Promoted'
+                ORDER BY publication_date DESC, id DESC
+                """,
+                (thesis_id,),
+            )
+
+            if promoted_evidence_df.empty:
+                empty_state("No promoted evidence items available for governed observations.")
+            else:
+                promoted_ids = promoted_evidence_df["id"].astype(int).tolist()
+                promoted_labels = {}
+                for _, row in promoted_evidence_df.iterrows():
+                    evidence_id = int(row["id"])
+                    title = str(row["title"]).strip() if pd.notna(row["title"]) and str(row["title"]).strip() else "—"
+                    source_name = str(row["source_name"]).strip() if pd.notna(row["source_name"]) and str(row["source_name"]).strip() else "—"
+                    publication_date = str(row["publication_date"]).strip() if pd.notna(row["publication_date"]) and str(row["publication_date"]).strip() else "—"
+                    evidence_grade = str(row["evidence_grade"]).strip() if pd.notna(row["evidence_grade"]) and str(row["evidence_grade"]).strip() else "—"
+                    promoted_labels[evidence_id] = (
+                        f"#{evidence_id} | {title} | Source: {source_name} | Date: {publication_date} | Grade: {evidence_grade}"
+                    )
+
+                selected_observation_evidence_id = st.selectbox(
+                    "Select Promoted Evidence Item",
+                    options=promoted_ids,
+                    format_func=lambda evidence_id: promoted_labels.get(evidence_id, f"#{evidence_id}"),
+                    key="observation_selected_evidence_id",
+                )
+
+                with st.form("observation_create_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        observation_pillar_id = st.selectbox(
+                            "Pillar ID",
+                            options=["B1", "B2", "B3", "B4", "B5", "B6", "B7", "I1", "I2", "I3", "I4"],
+                            key="observation_pillar_id",
+                        )
+                    with col2:
+                        observation_category = st.selectbox(
+                            "Observation Category",
+                            options=OBSERVATION_CATEGORY_OPTIONS,
+                            key="observation_category",
+                        )
+
+                    observation_text = st.text_area(
+                        "Observation Text",
+                        height=100,
+                        key="observation_text",
+                    )
+                    evidence_quote = st.text_area(
+                        "Evidence Quote",
+                        height=80,
+                        key="observation_evidence_quote",
+                    )
+                    source_location = st.text_input(
+                        "Source Location",
+                        key="observation_source_location",
+                    )
+
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        analyst_confidence = st.selectbox(
+                            "Analyst Confidence",
+                            options=["Low", "Medium", "High"],
+                            index=2,
+                            key="observation_analyst_confidence",
+                        )
+                    with col2:
+                        created_by = st.text_input(
+                            "Created By",
+                            value=thesis['reviewer'] if thesis['reviewer'] else "System",
+                            key="observation_created_by",
+                        )
+                    with col3:
+                        observation_status = st.selectbox(
+                            "Status",
+                            options=OBSERVATION_STATUS_OPTIONS,
+                            index=OBSERVATION_STATUS_OPTIONS.index(OBSERVATION_STATUS_ACTIVE),
+                            key="observation_status",
+                        )
+
+                    create_observation_submitted = st.form_submit_button("Create Observation", use_container_width=True)
+
+                    if create_observation_submitted:
+                        try:
+                            creation_result = create_evidence_observation(
+                                evidence_item_id=selected_observation_evidence_id,
+                                pillar_id=observation_pillar_id,
+                                observation_category=observation_category,
+                                observation_text=observation_text,
+                                evidence_quote=evidence_quote,
+                                source_location=source_location,
+                                analyst_confidence=analyst_confidence,
+                                created_by=created_by,
+                                status=observation_status,
+                            )
+                            if creation_result["success"]:
+                                st.success(f"✓ Observation created (ID {creation_result['observation_id']})")
+                                st.rerun()
+                            st.error(creation_result["message"])
+                        except ValueError as exc:
+                            st.error(str(exc))
+
+                observations_for_evidence_df = get_observations_for_evidence(selected_observation_evidence_id)
+                st.caption("Observations for Selected Evidence Item")
+                if observations_for_evidence_df.empty:
+                    st.info("No observations recorded for this evidence item.")
+                else:
+                    st.dataframe(observations_for_evidence_df, use_container_width=True)
+
+                    observation_id_options = observations_for_evidence_df["id"].astype(int).tolist()
+                    selected_observation_id = st.selectbox(
+                        "Select Observation to Update",
+                        options=observation_id_options,
+                        key="observation_selected_update_id",
+                    )
+                    selected_observation_df = observations_for_evidence_df[
+                        observations_for_evidence_df["id"] == selected_observation_id
+                    ]
+                    selected_observation = selected_observation_df.iloc[0] if not selected_observation_df.empty else None
+
+                    if selected_observation is not None:
+                        with st.form("observation_update_form"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                update_pillar_id = st.text_input(
+                                    "Update Pillar ID",
+                                    value=str(selected_observation["pillar_id"]) if pd.notna(selected_observation["pillar_id"]) else "",
+                                    key="observation_update_pillar_id",
+                                )
+                            with col2:
+                                current_category = str(selected_observation["observation_category"]).strip() if pd.notna(selected_observation["observation_category"]) else OBSERVATION_CATEGORY_OPTIONS[0]
+                                update_category_index = OBSERVATION_CATEGORY_OPTIONS.index(current_category) if current_category in OBSERVATION_CATEGORY_OPTIONS else 0
+                                update_observation_category = st.selectbox(
+                                    "Update Category",
+                                    options=OBSERVATION_CATEGORY_OPTIONS,
+                                    index=update_category_index,
+                                    key="observation_update_category",
+                                )
+
+                            update_observation_text = st.text_area(
+                                "Update Observation Text",
+                                value=str(selected_observation["observation_text"]) if pd.notna(selected_observation["observation_text"]) else "",
+                                height=100,
+                                key="observation_update_text",
+                            )
+                            update_evidence_quote = st.text_area(
+                                "Update Evidence Quote",
+                                value=str(selected_observation["evidence_quote"]) if pd.notna(selected_observation["evidence_quote"]) else "",
+                                height=80,
+                                key="observation_update_quote",
+                            )
+                            update_source_location = st.text_input(
+                                "Update Source Location",
+                                value=str(selected_observation["source_location"]) if pd.notna(selected_observation["source_location"]) else "",
+                                key="observation_update_source_location",
+                            )
+
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                current_confidence = str(selected_observation["analyst_confidence"]).strip() if pd.notna(selected_observation["analyst_confidence"]) else "Medium"
+                                confidence_options = ["Low", "Medium", "High"]
+                                confidence_index = confidence_options.index(current_confidence) if current_confidence in confidence_options else 1
+                                update_analyst_confidence = st.selectbox(
+                                    "Update Analyst Confidence",
+                                    options=confidence_options,
+                                    index=confidence_index,
+                                    key="observation_update_confidence",
+                                )
+                            with col2:
+                                current_status = str(selected_observation["status"]).strip() if pd.notna(selected_observation["status"]) else OBSERVATION_STATUS_ACTIVE
+                                status_index = OBSERVATION_STATUS_OPTIONS.index(current_status) if current_status in OBSERVATION_STATUS_OPTIONS else 0
+                                update_status = st.selectbox(
+                                    "Update Status",
+                                    options=OBSERVATION_STATUS_OPTIONS,
+                                    index=status_index,
+                                    key="observation_update_status",
+                                )
+                            with col3:
+                                update_by = st.text_input(
+                                    "Updated By",
+                                    value=thesis['reviewer'] if thesis['reviewer'] else "System",
+                                    key="observation_updated_by",
+                                )
+
+                            update_submitted = st.form_submit_button("Update Observation", use_container_width=True)
+                            if update_submitted:
+                                try:
+                                    update_result = update_evidence_observation(
+                                        observation_id=selected_observation_id,
+                                        pillar_id=update_pillar_id,
+                                        observation_category=update_observation_category,
+                                        observation_text=update_observation_text,
+                                        evidence_quote=update_evidence_quote,
+                                        source_location=update_source_location,
+                                        analyst_confidence=update_analyst_confidence,
+                                        status=update_status,
+                                        updated_by=update_by,
+                                    )
+                                    if update_result["success"]:
+                                        st.success("✓ Observation updated")
+                                        st.rerun()
+                                    st.error(update_result["message"])
+                                except ValueError as exc:
+                                    st.error(str(exc))
+
+                pillar_filter = st.selectbox(
+                    "View Observations by Pillar",
+                    options=["B1", "B2", "B3", "B4", "B5", "B6", "B7", "I1", "I2", "I3", "I4"],
+                    key="observation_pillar_filter",
+                )
+                observations_for_pillar_df = get_observations_for_pillar(thesis_id=thesis_id, pillar_id=pillar_filter)
+                st.caption(f"Observations for Thesis {thesis_id} / Pillar {pillar_filter}")
+                if observations_for_pillar_df.empty:
+                    st.info("No observations found for the selected pillar.")
+                else:
+                    st.dataframe(observations_for_pillar_df, use_container_width=True)
         
         with tab3:
             section_header("Business Quality Scoring")
