@@ -1655,6 +1655,13 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 )
                 if not existing_df.empty:
                     existing_record = existing_df.iloc[0]
+
+            investment_judgment_default = ""
+            if existing_record is not None:
+                if 'judgment' in existing_record.index and pd.notna(existing_record['judgment']) and str(existing_record['judgment']).strip() != "":
+                    investment_judgment_default = str(existing_record['judgment'])
+                elif pd.notna(existing_record['inference']) and str(existing_record['inference']).strip() != "":
+                    investment_judgment_default = str(existing_record['inference'])
             
             with st.form("investment_assessment_form"):
                 col1, col2 = st.columns(2)
@@ -1726,30 +1733,18 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         key="invest_items"
                     )
                 
-                inference = st.text_area(
-                    "Inference *",
-                    value=existing_record['inference'] if existing_record is not None and pd.notna(existing_record['inference']) else "",
-                    placeholder="What is your inference from this assessment?",
+                judgment = st.text_area(
+                    "Judgment",
+                    value=investment_judgment_default,
+                    placeholder="What is your judgment from this assessment?",
                     height=80,
-                    key="invest_inference"
+                    key="invest_judgment"
                 )
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    conf_options = ["", "Low", "Moderate", "High"]
-                    conf_default_idx = 0
-                    if existing_record is not None and pd.notna(existing_record['inference_confidence']):
-                        try:
-                            conf_default_idx = conf_options.index(existing_record['inference_confidence'])
-                        except ValueError:
-                            conf_default_idx = 0
-                    inference_confidence = st.selectbox(
-                        "Inference Confidence",
-                        conf_options,
-                        index=conf_default_idx,
-                        key="invest_inf_conf"
-                    )
+                    st.write("")
                 
                 with col2:
                     falsification_trigger = st.text_input(
@@ -1758,14 +1753,6 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         placeholder="What would prove this wrong?",
                         key="invest_fals"
                     )
-                
-                score_rationale = st.text_area(
-                    "Score Rationale *",
-                    value=existing_record['score_rationale'] if existing_record is not None and pd.notna(existing_record['score_rationale']) else "",
-                    placeholder="Explain how you arrived at this score",
-                    height=80,
-                    key="invest_rationale"
-                )
                 
                 col1, col2 = st.columns(2)
                 
@@ -1807,12 +1794,10 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         st.error("Pillar is required.")
                     elif not confidence_basis.strip():
                         st.error("Confidence Basis is required.")
-                    elif not inference.strip():
-                        st.error("Inference is required.")
+                    elif not judgment.strip():
+                        st.error("Judgment is required.")
                     elif not falsification_trigger.strip():
                         st.error("Falsification Trigger is required.")
-                    elif not score_rationale.strip():
-                        st.error("Score Rationale is required.")
                     else:
                         # Split pillar into ID and name
                         pillar_parts = selected_pillar.split(" ", 1)
@@ -1840,8 +1825,8 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                 UPDATE pillar_scores
                                 SET score = ?, rag_status = ?, evidence_grade = ?,
                                     confidence_basis = ?, primary_sources = ?, evidence_items = ?,
-                                    inference = ?, inference_confidence = ?, falsification_trigger = ?,
-                                    score_rationale = ?, reviewer = ?, review_date = ?, drl = ?
+                                    judgment = ?, falsification_trigger = ?,
+                                    reviewer = ?, review_date = ?, drl = ?
                                 WHERE thesis_id = ? AND pillar_id = ?
                                 """,
                                 (
@@ -1851,10 +1836,8 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                     confidence_basis.strip(),
                                     primary_sources.strip() if primary_sources else None,
                                     evidence_items.strip() if evidence_items else None,
-                                    inference.strip(),
-                                    inference_confidence if inference_confidence else None,
+                                    judgment.strip(),
                                     falsification_trigger.strip(),
-                                    score_rationale.strip(),
                                     reviewer.strip() if reviewer else None,
                                     review_date.isoformat() if review_date else None,
                                     int(drl) if drl else None,
@@ -1878,10 +1861,10 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                 """
                                 INSERT INTO pillar_scores
                                 (thesis_id, pillar_id, pillar_name, score, rag_status, evidence_grade,
-                                 confidence_basis, primary_sources, evidence_items, inference,
-                                 inference_confidence, falsification_trigger, score_rationale,
+                                 confidence_basis, primary_sources, evidence_items, judgment,
+                                 falsification_trigger,
                                  reviewer, review_date, drl, created_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
                                     thesis_id,
@@ -1893,10 +1876,8 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                     confidence_basis.strip(),
                                     primary_sources.strip() if primary_sources else None,
                                     evidence_items.strip() if evidence_items else None,
-                                    inference.strip(),
-                                    inference_confidence if inference_confidence else None,
+                                    judgment.strip(),
                                     falsification_trigger.strip(),
-                                    score_rationale.strip(),
                                     reviewer.strip() if reviewer else None,
                                     review_date.isoformat() if review_date else None,
                                     int(drl) if drl else None,
