@@ -299,3 +299,28 @@ Resolution notes:
 Repository governance note:
 
 - CANDIDATE-002 through CANDIDATE-012 are retired from the roadmap because no governed repository artifact exists.
+
+## Validation Case 002 — Eastman Kodak (EK)
+
+### Validation Case 002 — Design Discovery
+
+Observation:
+
+The current governed evidence schema primarily captures evidence
+provenance (source, publication date, grade, workflow status).
+It captures limited analytical substance from the underlying
+documents.
+
+Implication:
+
+During Phase 1A it became apparent that Business Quality scoring
+still requires direct reference to the source filings rather than
+the governed evidence records alone.
+
+Follow-up:
+
+Design review initiated for MVP-022 — Governed Evidence Extraction.
+
+This observation is specific to Validation Case 002 and does not,
+by itself, justify architectural change. Architectural evolution
+will follow the normal governed development process.
