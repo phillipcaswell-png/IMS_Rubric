@@ -41,3 +41,24 @@ Review Expectations:
 - Reviewers must verify ownership provenance for orchestrated outputs.
 - Reviewers must verify no governed writes occur in read-only orchestration features.
 - Reviewers must confirm residual risks and deferred intentions are documented.
+
+## Validation Case Standard
+
+Every historical validation case requires a Validation Freeze Record before the first evidence item is staged.
+
+The freeze record is immutable after staging begins.
+
+Required freeze record contents:
+- Evaluation date
+- Evidence cutoff date
+- Validation mode confirmation
+- Primary review horizon
+- Validation question
+- Validation hypothesis
+- Evidence sequencing protocol
+- Explicit statement: no expected decision, scores, or outcome recorded
+- Explicit statement: no expected attribution recorded
+
+Case-specific execution details (workflow friction, outcome attribution, lessons) are recorded in VALIDATION_NOTES.md under the individual case.
+
+The methodology standard lives here. The execution record lives in VALIDATION_NOTES.md.

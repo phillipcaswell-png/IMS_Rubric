@@ -87,7 +87,7 @@ Archive.
 
 ## Outcome Attribution
 
-(Add after decision is locked.)
+Attribution: Not recorded before evidence review. Attribution determined by historical reviews after decision is locked.
 
 ---
 
