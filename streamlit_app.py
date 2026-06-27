@@ -30,6 +30,7 @@ EVENT_EVIDENCE_STAGED = "Evidence Staged"
 EVENT_EVIDENCE_REVIEWED = "Evidence Reviewed"
 EVENT_EVIDENCE_PROMOTED = "Evidence Promoted"
 EVENT_EVIDENCE_REJECTED = "Evidence Rejected"
+EVENT_EVIDENCE_PROMOTION_BLOCKED = "Evidence Promotion Blocked"
 
 INTAKE_STATUS_PENDING = "Pending"
 INTAKE_STATUS_REVIEWED = "Reviewed"
@@ -166,6 +167,16 @@ def init_db():
             created_at TEXT
         )
     """)
+
+    try:
+        cursor.execute("ALTER TABLE theses ADD COLUMN validation_mode INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE theses ADD COLUMN evidence_cutoff_date TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
     
     # Evidence items table
     cursor.execute("""
@@ -352,7 +363,7 @@ def init_db():
             FOREIGN KEY (evidence_item_id) REFERENCES evidence_items(id)
         )
     """)
-    
+
     conn.commit()
     conn.close()
 
@@ -384,6 +395,16 @@ def insert_query(query, params=()):
     row_id = cursor.lastrowid
     conn.close()
     return row_id
+
+
+def is_validation_configuration_locked(thesis_id):
+    """Validation mode and cutoff lock after first recorded decision."""
+    decision_count_df = fetch_dataframe(
+        "SELECT COUNT(*) AS decision_count FROM decision_logs WHERE thesis_id = ?",
+        (thesis_id,)
+    )
+    decision_count = int(decision_count_df.iloc[0]["decision_count"]) if not decision_count_df.empty else 0
+    return decision_count > 0
 
 
 def log_event(
@@ -674,6 +695,40 @@ def promote_staged_evidence(staging_uuid, analyst):
             "message": "Promotion blocked: thesis_id is required to promote evidence.",
             "promoted_evidence_id": None,
         }
+
+    thesis_df = fetch_dataframe(
+        "SELECT id, validation_mode, evidence_cutoff_date FROM theses WHERE id = ? LIMIT 1",
+        (int(staging_record["thesis_id"]),)
+    )
+
+    if not thesis_df.empty:
+        thesis_record = thesis_df.iloc[0]
+        validation_mode_enabled = int(thesis_record["validation_mode"]) == 1 if pd.notna(thesis_record["validation_mode"]) else False
+        cutoff_raw = str(thesis_record["evidence_cutoff_date"]).strip() if pd.notna(thesis_record["evidence_cutoff_date"]) else ""
+        publication_raw = str(staging_record["publication_date"]).strip() if pd.notna(staging_record["publication_date"]) else ""
+
+        if validation_mode_enabled and cutoff_raw and publication_raw:
+            publication_date = pd.to_datetime(publication_raw, errors="coerce")
+            cutoff_date = pd.to_datetime(cutoff_raw, errors="coerce")
+
+            if pd.notna(publication_date) and pd.notna(cutoff_date) and publication_date.date() > cutoff_date.date():
+                log_event(
+                    thesis_id=int(staging_record["thesis_id"]),
+                    event_type=EVENT_EVIDENCE_PROMOTION_BLOCKED,
+                    description=(
+                        f"staging_uuid={staging_uuid}|"
+                        f"publication_date={publication_date.date().isoformat()}|"
+                        f"cutoff_date={cutoff_date.date().isoformat()}|"
+                        "block_reason=PublicationDateAfterCutoff"
+                    ),
+                    created_by=analyst if analyst and str(analyst).strip() else "System",
+                    version="1.0"
+                )
+                return {
+                    "success": False,
+                    "message": "Promotion blocked: publication_date is after evidence_cutoff_date for this thesis.",
+                    "promoted_evidence_id": None,
+                }
 
     promoted_evidence_id = insert_query(
         """
@@ -1618,6 +1673,19 @@ elif st.session_state['current_view'] == 'New Thesis':
                 "Status",
                 ["", "Draft", "Evidence Collection", "Scoring", "Decision Review", "Active Monitoring", "Closed"]
             )
+
+        validation_mode_enabled = st.checkbox(
+            "Validation Mode (Historical Case Validation)",
+            value=False,
+            help="Enable historical case validation with an evidence publication cutoff date."
+        )
+
+        evidence_cutoff_date = st.date_input(
+            "Evidence Cutoff Date",
+            value=datetime.now().date(),
+            min_value=datetime(1900, 1, 1).date(),
+            help="Evidence with publication_date after this date is blocked from promotion when validation mode is enabled."
+        )
         
         drl = st.selectbox("DRL", [""] + list(range(1, 10)))
         
@@ -1635,8 +1703,9 @@ elif st.session_state['current_view'] == 'New Thesis':
                     """
                     INSERT INTO theses 
                     (company_name, ticker, decision_question, account_type, portfolio_role, 
-                     primary_horizon, regime_state, reviewer, status, drl, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     primary_horizon, regime_state, reviewer, status, drl, validation_mode,
+                     evidence_cutoff_date, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         company_name.strip(),
@@ -1649,6 +1718,8 @@ elif st.session_state['current_view'] == 'New Thesis':
                         reviewer.strip() if reviewer else None,
                         status if status else None,
                         int(drl) if drl else None,
+                        1 if validation_mode_enabled else 0,
+                        evidence_cutoff_date.isoformat() if validation_mode_enabled and evidence_cutoff_date else None,
                         datetime.now().isoformat()
                     )
                 )
@@ -1716,6 +1787,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         with tab1:
             # Get overview metrics
             metrics = get_overview_metrics(thesis_id)
+            validation_locked = is_validation_configuration_locked(thesis_id)
             
             # Section 1: Evaluation Summary
             section_header("Evaluation Summary")
@@ -1725,11 +1797,17 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 summary_field("Ticker", thesis['ticker'] or "—")
                 summary_field("Reviewer", thesis['reviewer'] or "—")
                 summary_field("DRL", thesis['drl'] or "—")
+                validation_mode_enabled = int(thesis['validation_mode']) == 1 if pd.notna(thesis['validation_mode']) else False
+                summary_field("Validation Mode", "Enabled" if validation_mode_enabled else "Disabled")
             with col2:
                 summary_field("Status", thesis['status'] or "—")
                 summary_field("Primary Horizon", thesis['primary_horizon'] or "—")
                 summary_field("Regime State", thesis['regime_state'] or "—")
                 summary_field("Created", thesis['created_at'] or "—")
+                summary_field("Evidence Cutoff Date", thesis['evidence_cutoff_date'] if pd.notna(thesis['evidence_cutoff_date']) and str(thesis['evidence_cutoff_date']).strip() else "—")
+
+            if validation_locked:
+                st.info("Validation mode and evidence cutoff date are immutable after the first decision record. Use a new thesis for a different historical scenario.")
             
             summary_field("Decision Question", thesis['decision_question'])
             
@@ -3382,6 +3460,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
 
             # Decision Form
             section_header("Record Decision")
+
+            if is_validation_configuration_locked(thesis_id):
+                st.caption("Validation configuration is locked for this thesis because a decision record exists.")
             
             # Check for existing decision
             existing_decision_df = fetch_dataframe(
