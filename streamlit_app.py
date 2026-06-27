@@ -2307,12 +2307,14 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     intake_publication_date = st.date_input(
                         "Publication Date",
                         value=datetime.now().date(),
+                        min_value=datetime(1900, 1, 1).date(),
                         key="theia_intake_publication_date"
                     )
                 with col2:
                     intake_retrieval_date = st.date_input(
                         "Retrieval Date",
                         value=datetime.now().date(),
+                        min_value=datetime(1900, 1, 1).date(),
                         key="theia_intake_retrieval_date"
                     )
 
