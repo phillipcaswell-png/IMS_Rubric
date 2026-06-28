@@ -3652,6 +3652,15 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
     review_presence_df = fetch_dataframe("SELECT DISTINCT thesis_id FROM thesis_reviews")
     reviewed_ids = set(review_presence_df["thesis_id"].astype(int).tolist()) if not review_presence_df.empty else set()
 
+    framework_eligible_df = fetch_dataframe(
+        """
+        SELECT DISTINCT thesis_id
+        FROM thesis_reviews
+        WHERE framework_review_eligible = 1
+        """
+    )
+    framework_eligible_ids = set(framework_eligible_df["thesis_id"].astype(int).tolist()) if not framework_eligible_df.empty else set()
+
     active_evaluation_thesis_id = _resolve_active_evaluation_thesis_id(theses_df, latest_prep_by_thesis_id)
 
     home_rows = []
