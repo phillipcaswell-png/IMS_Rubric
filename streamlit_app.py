@@ -2,16 +2,18 @@ import streamlit as st
 import pandas as pd
 import json
 import time
+import importlib
 from datetime import datetime
 from evaluation_engine import prepare_evaluation
-from workflow_assistant import (
-    normalize_promotion_candidates,
-    build_rationale_draft,
-    build_decision_prep_summary,
-    derive_workflow_ownership_state,
-    prioritize_active_evaluation_rows,
-    resolve_active_evaluation_identity,
-)
+import workflow_assistant as workflow_assistant_module
+
+workflow_assistant_module = importlib.reload(workflow_assistant_module)
+normalize_promotion_candidates = workflow_assistant_module.normalize_promotion_candidates
+build_rationale_draft = workflow_assistant_module.build_rationale_draft
+build_decision_prep_summary = workflow_assistant_module.build_decision_prep_summary
+derive_workflow_ownership_state = workflow_assistant_module.derive_workflow_ownership_state
+prioritize_active_evaluation_rows = workflow_assistant_module.prioritize_active_evaluation_rows
+resolve_active_evaluation_identity = workflow_assistant_module.resolve_active_evaluation_identity
 from services import (
     init_db,
     run_query,
@@ -929,6 +931,39 @@ def summary_field(label, value):
     st.write(f"**{label}:** {value}")
 
 
+def _display_text(value):
+    """Normalize scalar values into clean display text."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        text = value.strip()
+        if text in {"-", "—"}:
+            return ""
+        return text
+    try:
+        if pd.isna(value):
+            return ""
+    except TypeError:
+        pass
+    text = str(value).strip()
+    if text in {"-", "—"}:
+        return ""
+    return text
+
+
+def summary_field_if_present(label, value, empty_text=None, hide_if_empty=False):
+    """Render summary fields without punctuation placeholders."""
+    text = _display_text(value)
+    if text:
+        summary_field(label, text)
+        return
+    if hide_if_empty:
+        return
+    if empty_text is None:
+        empty_text = "Not recorded"
+    summary_field(label, empty_text)
+
+
 ASSESSMENT_WORKSPACE_PILLARS = [
     {"id": "B1", "name": "Business Quality", "domain": "Business Understanding"},
     {"id": "B2", "name": "Competitive Advantage", "domain": "Business Understanding"},
@@ -982,6 +1017,68 @@ def _get_workspace_stage(business_rows, investment_rows, gate_ready):
     if gate_ready:
         return "Decision Recording"
     return "Assessment Completion"
+
+
+def _build_workspace_clarity_context(thesis_id, thesis_row):
+    """Build a concise workspace state summary for analysts."""
+    score_df = fetch_dataframe(
+        """
+        SELECT
+            SUM(CASE WHEN pillar_id LIKE 'B%' THEN 1 ELSE 0 END) AS business_rows,
+            SUM(CASE WHEN pillar_id LIKE 'I%' THEN 1 ELSE 0 END) AS investment_rows
+        FROM pillar_scores
+        WHERE thesis_id = ?
+        """,
+        (thesis_id,),
+    )
+    score_row = score_df.iloc[0] if not score_df.empty else None
+    business_rows = int(score_row["business_rows"]) if score_row is not None and pd.notna(score_row["business_rows"]) else 0
+    investment_rows = int(score_row["investment_rows"]) if score_row is not None and pd.notna(score_row["investment_rows"]) else 0
+
+    gate_result = validate_decision_gate(thesis_id)
+    workflow_status = _get_workspace_stage(business_rows, investment_rows, gate_result["eligible"])
+
+    decision_df = fetch_dataframe(
+        """
+        SELECT recommendation, review_date, horizon_map
+        FROM decision_logs
+        WHERE thesis_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (thesis_id,),
+    )
+    decision_row = decision_df.iloc[0] if not decision_df.empty else None
+
+    recommendation = _display_text(decision_row["recommendation"]) if decision_row is not None else ""
+    review_date = _display_text(decision_row["review_date"]) if decision_row is not None else ""
+    horizon_map = _display_text(decision_row["horizon_map"]) if decision_row is not None else ""
+    ticker_text = _display_text(thesis_row.get("ticker"))
+    reviewer_text = _display_text(thesis_row.get("reviewer"))
+    horizon_text = _display_text(thesis_row.get("primary_horizon"))
+
+    decision_status = "Decision Recorded" if decision_row is not None else "No Decision Recorded"
+    governed_decision = recommendation if recommendation else ("Recorded without recommendation" if decision_row is not None else "No governed decision recorded")
+
+    if decision_row is not None:
+        next_action = "Review Historical Outcome"
+    elif gate_result["eligible"]:
+        next_action = "Record Decision"
+    else:
+        next_action = "Continue Assessment"
+
+    return {
+        "workflow_status": workflow_status,
+        "decision_status": decision_status,
+        "governed_decision": governed_decision,
+        "decision_review_date": review_date,
+        "decision_horizon_map": horizon_map,
+        "ticker": ticker_text,
+        "reviewer": reviewer_text,
+        "investment_horizon": horizon_text,
+        "next_action": next_action,
+        "gate_status": "Decision Eligible" if gate_result["eligible"] else f"Decision Blocked ({len(gate_result['missing'])} requirements remaining)",
+    }
 
 
 def _build_assessment_workspace_context(thesis_id, pillar_id):
@@ -3518,10 +3615,10 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 {
                     "thesis_id": workspace_tid,
                     "Company": workspace_row["company_name"],
-                    "Ticker": workspace_row["ticker"] if pd.notna(workspace_row["ticker"]) and str(workspace_row["ticker"]).strip() else "—",
+                    "Ticker": workspace_row["ticker"] if pd.notna(workspace_row["ticker"]) and str(workspace_row["ticker"]).strip() else "Ticker not assigned",
                     "Current Stage": stage,
                     "Next Recommended Action": next_action,
-                    "Current Status": workspace_row["status"] if pd.notna(workspace_row["status"]) and str(workspace_row["status"]).strip() else "—",
+                    "Current Status": workspace_row["status"] if pd.notna(workspace_row["status"]) and str(workspace_row["status"]).strip() else "Status not set",
                 }
             )
 
@@ -3565,6 +3662,8 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
         # Company name as header
         st.header(thesis['company_name'])
 
+        workspace_clarity = _build_workspace_clarity_context(thesis_id, thesis)
+
         engine_preparation_status = st.session_state.get("engine_preparation_status")
         if (
             isinstance(engine_preparation_status, dict)
@@ -3572,37 +3671,60 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
         ):
             render_preparation_status(engine_preparation_status)
         
-        # Metadata row
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            st.metric("Ticker", thesis['ticker'] or "-")
-        with col2:
-            st.metric("Status", thesis['status'] or "-")
-        with col3:
-            st.metric("DRL", thesis['drl'] or "-")
-        with col4:
-            st.metric("Horizon", thesis['primary_horizon'] or "-")
-        with col5:
-            st.metric("Reviewer", thesis['reviewer'] or "-")
+        # Analyst-first workspace summary
+        header_metrics = [
+            ("Ticker", workspace_clarity["ticker"] if workspace_clarity["ticker"] else "Ticker not assigned"),
+            ("Workflow Status", workspace_clarity["workflow_status"]),
+            ("Governed Decision", workspace_clarity["governed_decision"]),
+            (
+                "Investment Horizon",
+                workspace_clarity["investment_horizon"] if workspace_clarity["investment_horizon"] else "Not set",
+            ),
+        ]
+        if workspace_clarity["reviewer"]:
+            header_metrics.append(("Reviewer", workspace_clarity["reviewer"]))
 
-        st.caption("Thesis Workspace")
+        header_columns = st.columns(len(header_metrics))
+        for idx, (label, value) in enumerate(header_metrics):
+            with header_columns[idx]:
+                st.metric(label, value)
+
+        st.info(f"Next action: {workspace_clarity['next_action']}")
         
         st.divider()
         
+        # Keep all workspace sections reachable without horizontal scrolling.
+        st.markdown(
+            """
+            <style>
+            div[data-baseweb="tab-list"] {
+                flex-wrap: wrap;
+                row-gap: 0.35rem;
+            }
+            div[data-baseweb="tab-list"] button {
+                height: auto;
+                padding-top: 0.25rem;
+                padding-bottom: 0.25rem;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         # Tabs
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(
             [
-                "Assessment Workspace",
+                "Assessment",
                 "Overview",
                 "Evidence",
-                "Business Quality",
+                "Business",
                 "Industry",
                 "Financials",
                 "Management",
                 "Valuation",
-                "Risk",
+                "History",
                 "Decision",
-                "Audit Trail"
+                "Audit"
             ]
         )
         
@@ -5174,15 +5296,15 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
 
                 st.caption("Decision Record (Read-Only Context)")
                 summary_field("Decision Log ID", decision_context["id"])
-                summary_field("Recommendation", decision_context["recommendation"] or "—")
-                summary_field("Review Date", decision_context["review_date"] or "—")
-                summary_field("Horizon Map", decision_context["horizon_map"] or "—")
-                summary_field("Action", decision_context["action"] or "—")
-                summary_field("Decision Rationale", decision_context["decision_rationale"] or "—")
-                summary_field("Key Risks", decision_context["key_risks"] or "—")
-                summary_field("Falsification Summary", decision_context["falsification_summary"] or "—")
-                summary_field("Next Review Date", decision_context["next_review_date"] or "—")
-                summary_field("Created At", decision_context["created_at"] or "—")
+                summary_field_if_present("Recommendation", decision_context["recommendation"])
+                summary_field_if_present("Review Date", decision_context["review_date"])
+                summary_field_if_present("Horizon Map", decision_context["horizon_map"])
+                summary_field_if_present("Action", decision_context["action"])
+                summary_field_if_present("Decision Rationale", decision_context["decision_rationale"])
+                summary_field_if_present("Key Risks", decision_context["key_risks"])
+                summary_field_if_present("Falsification Summary", decision_context["falsification_summary"])
+                summary_field_if_present("Next Review Date", decision_context["next_review_date"])
+                summary_field_if_present("Created At", decision_context["created_at"])
 
                 st.divider()
 
@@ -5337,6 +5459,43 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
         with tab10:
             gate_result = validate_decision_gate(thesis_id)
 
+            existing_decision_df = fetch_dataframe(
+                "SELECT * FROM decision_logs WHERE thesis_id = ? ORDER BY id DESC LIMIT 1",
+                (thesis_id,)
+            )
+            existing_decision = existing_decision_df.iloc[0] if not existing_decision_df.empty else None
+
+            section_header("Governed Decision Summary")
+            summary_field(
+                "Recommendation",
+                _display_text(existing_decision["recommendation"]) if existing_decision is not None and _display_text(existing_decision["recommendation"]) else "Not recorded",
+            )
+            summary_field(
+                "Decision Status",
+                "Recorded" if existing_decision is not None else "Not Recorded",
+            )
+            summary_field(
+                "Review Date",
+                _display_text(existing_decision["review_date"]) if existing_decision is not None and _display_text(existing_decision["review_date"]) else "Not recorded",
+            )
+            summary_field(
+                "Investment Horizon",
+                _display_text(existing_decision["horizon_map"]) if existing_decision is not None and _display_text(existing_decision["horizon_map"]) else "Not recorded",
+            )
+            summary_field(
+                "Decision Gate Status",
+                "Decision Eligible" if gate_result["eligible"] else f"Decision Blocked ({len(gate_result['missing'])} requirements remaining)",
+            )
+            st.info(
+                "Next action: "
+                + (
+                    "Decision Recorded"
+                    if existing_decision is not None
+                    else ("Record Decision" if gate_result["eligible"] else "Continue Assessment")
+                )
+            )
+            st.divider()
+
             section_header("Themis Constitutional Validation")
             if gate_result["eligible"]:
                 st.success("🟢 Decision Eligible")
@@ -5356,13 +5515,6 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
 
             if is_validation_configuration_locked(thesis_id):
                 st.caption("Validation configuration is locked for this thesis because a decision record exists.")
-            
-            # Check for existing decision
-            existing_decision_df = fetch_dataframe(
-                "SELECT * FROM decision_logs WHERE thesis_id = ?",
-                (thesis_id,)
-            )
-            existing_decision = existing_decision_df.iloc[0] if not existing_decision_df.empty else None
             
             with st.form("decision_form"):
                 col1, col2 = st.columns(2)
@@ -5467,10 +5619,10 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
             # Display existing decision
             section_header("Current Decision")
             if existing_decision is not None:
-                summary_field("Recommendation", existing_decision['recommendation'] or "—")
-                summary_field("Review Date", existing_decision['review_date'] or "—")
-                summary_field("Horizon Map", existing_decision['horizon_map'] or "—")
-                summary_field("Action", existing_decision['action'] or "—")
+                summary_field_if_present("Recommendation", existing_decision['recommendation'])
+                summary_field_if_present("Review Date", existing_decision['review_date'])
+                summary_field_if_present("Horizon Map", existing_decision['horizon_map'])
+                summary_field_if_present("Action", existing_decision['action'])
             else:
                 empty_state("No decision has been recorded for this thesis yet.")
         
