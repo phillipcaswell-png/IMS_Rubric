@@ -6,6 +6,12 @@ from datetime import datetime
 
 import pandas as pd
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 # =============================================================================
 # DATABASE SERVICES
@@ -903,7 +909,6 @@ def get_extraction_suggestions(evidence_item_id, document_text=None):
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1200,
-            temperature=0,
             system=system_prompt,
             messages=[
                 {"role": "user", "content": user_prompt},
@@ -915,7 +920,14 @@ def get_extraction_suggestions(evidence_item_id, document_text=None):
                 if getattr(block, "type", "") == "text":
                     raw_text += getattr(block, "text", "")
 
-        parsed = json.loads(raw_text) if raw_text.strip() else {"suggestions": []}
+        clean_text = raw_text.strip()
+        if clean_text.startswith("```"):
+            lines = clean_text.split("\n")
+            clean_text = "\n".join(
+                line for line in lines
+                if not line.strip().startswith("```")
+            ).strip()
+        parsed = json.loads(clean_text) if clean_text else {"suggestions": []}
         raw_suggestions = parsed.get("suggestions", []) if isinstance(parsed, dict) else []
     except Exception as exc:
         log_event(
