@@ -3471,15 +3471,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             empty_state("Industry Module Coming Next")
 
         with tab5:
-            empty_state("Financials Module Coming Next")
-
-        with tab6:
-            empty_state("Management Module Coming Next")
-
-        with tab7:
             # Add Investment Assessment Form
             section_header("Add Investment Assessment")
-            
+
             # Pillar selection (outside form to enable preloading)
             pillar_options = [
                 "",
@@ -3489,7 +3483,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 "I4 Portfolio Contribution"
             ]
             selected_pillar = st.selectbox("Select Pillar to Edit *", pillar_options, key="invest_pillar")
-            
+
             # Check for existing record
             existing_record = None
             existing_pillar_score_id = None
@@ -3514,10 +3508,10 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     investment_judgment_default = str(existing_record['judgment'])
                 elif pd.notna(existing_record['inference']) and str(existing_record['inference']).strip() != "":
                     investment_judgment_default = str(existing_record['inference'])
-            
+
             with st.form("investment_assessment_form"):
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     score = st.number_input(
                         "Score (1-10)",
@@ -3526,7 +3520,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         value=int(existing_record['score']) if existing_record is not None and pd.notna(existing_record['score']) else 5,
                         key="invest_score"
                     )
-                
+
                 with col2:
                     rag_options = ["", RAG_GREEN, RAG_YELLOW, RAG_ORANGE, RAG_RED]
                     rag_default_idx = 0
@@ -3541,9 +3535,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         index=rag_default_idx,
                         key="invest_rag"
                     )
-                
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     grade_options = ["", GRADE_A, GRADE_B, GRADE_C, GRADE_D]
                     grade_default_idx = 0
@@ -3558,7 +3552,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         index=grade_default_idx,
                         key="invest_grade"
                     )
-                
+
                 with col2:
                     confidence_basis = st.text_input(
                         "Confidence Basis *",
@@ -3566,9 +3560,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         placeholder="e.g., Expert Opinion, Statistical Analysis",
                         key="invest_conf_basis"
                     )
-                
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     primary_sources = st.text_input(
                         "Primary Sources",
@@ -3576,7 +3570,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         placeholder="List of primary sources",
                         key="invest_sources"
                     )
-                
+
                 with col2:
                     selected_evidence_links = st.multiselect(
                         "Linked Evidence Items",
@@ -3585,7 +3579,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         format_func=lambda evidence_id: available_evidence_labels.get(evidence_id, f"#{evidence_id}"),
                         help="Link one or more evidence items to this investment pillar score."
                     )
-                
+
                 judgment = st.text_area(
                     "Judgment",
                     value=investment_judgment_default,
@@ -3593,12 +3587,12 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     height=80,
                     key="invest_judgment"
                 )
-                
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     st.write("")
-                
+
                 with col2:
                     falsification_trigger = st.text_input(
                         "Falsification Trigger *",
@@ -3606,9 +3600,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         placeholder="What would prove this wrong?",
                         key="invest_fals"
                     )
-                
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     reviewer = st.text_input(
                         "Reviewer",
@@ -3616,16 +3610,16 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         placeholder="Name of reviewer",
                         key="invest_reviewer"
                     )
-                
+
                 with col2:
                     review_date = st.date_input(
                         "Review Date",
                         value=pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else default_validation_review_date,
                         key="invest_date"
                     )
-                
+
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     drl_options = [""] + list(range(1, 10))
                     drl_default_idx = 0
@@ -3635,12 +3629,12 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         except ValueError:
                             drl_default_idx = 0
                     drl = st.selectbox("DRL", drl_options, index=drl_default_idx, key="invest_drl")
-                
+
                 with col2:
                     st.write("")  # Spacer
-                
+
                 submitted = st.form_submit_button("Save Assessment", use_container_width=True, key="invest_submit")
-                
+
                 if submitted:
                     # Validation
                     if not selected_pillar or selected_pillar == "":
@@ -3656,7 +3650,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                         pillar_parts = selected_pillar.split(" ", 1)
                         pillar_id = pillar_parts[0]
                         pillar_name = pillar_parts[1] if len(pillar_parts) > 1 else ""
-                        
+
                         # Determine created_by
                         if reviewer.strip():
                             created_by = reviewer.strip()
@@ -3664,7 +3658,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                             created_by = thesis['reviewer']
                         else:
                             created_by = "System"
-                        
+
                         pillar_result = save_pillar_score(
                             thesis_id=thesis_id,
                             pillar_id=pillar_id,
@@ -3696,16 +3690,16 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                                 selected_evidence_ids=selected_evidence_links,
                                 created_by=created_by
                             )
-                        
+
                         st.rerun()
-            
+
             st.divider()
-            
+
             # Display Investment Assessment Scores
             section_header("Investment Assessment Scores")
             investment_df = fetch_dataframe(
                 """
-                SELECT 
+                SELECT
                     pillar_id, pillar_name, score, rag_status, evidence_grade,
                     confidence_basis, primary_sources, evidence_items, inference,
                     inference_confidence, falsification_trigger, score_rationale,
@@ -3716,11 +3710,17 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 """,
                 (thesis_id,)
             )
-            
+
             if not investment_df.empty:
                 st.dataframe(investment_df, use_container_width=True)
             else:
                 empty_state("No investment assessment scores have been added for this thesis yet.")
+
+        with tab6:
+            empty_state("Management Module Coming Next")
+
+        with tab7:
+            empty_state("Valuation Module Coming Next")
         
         with tab8:
             section_header("Historical Validation / Thesis Review")
