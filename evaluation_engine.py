@@ -9,6 +9,13 @@ from evidence_acquisition import (
     acquire_supported_candidates,
 )
 from evidence_discovery import discover_candidate_documents
+from extraction_coordinator import (
+    DEFAULT_EXTRACTOR_VERSION,
+    EXTRACTION_STATUS_FAILED,
+    EXTRACTION_STATUS_NOT_ATTEMPTED,
+    EXTRACTION_STATUS_PENDING,
+    coordinate_extraction,
+)
 from services import create_thesis, fetch_dataframe, get_overview_metrics, init_db, insert_query, run_query
 
 
@@ -32,6 +39,9 @@ DISCOVERY_STATUS_FAILED = "failed"
 
 ACQUISITION_STATUS_PENDING = "pending"
 
+EXTRACTION_STATUS_UNSUPPORTED = "unsupported"
+EXTRACTION_STATUS_COMPLETED = "completed"
+
 ENGINE_REVIEWER = "Operational Evaluation Engine"
 
 
@@ -42,6 +52,8 @@ def prepare_evaluation(
     reviewer=ENGINE_REVIEWER,
     discovery_providers=None,
     acquisition_providers=None,
+    extraction_refresh=False,
+    extractor_version=DEFAULT_EXTRACTOR_VERSION,
 ):
     """Prepare or resume an evaluation shell for analyst review."""
     normalized_ticker = _normalize_ticker(ticker)
@@ -60,6 +72,12 @@ def prepare_evaluation(
     acquisition_warnings = []
     acquisition_status = ACQUISITION_STATUS_PENDING
     acquired_documents = []
+    extraction_warnings = []
+    extraction_status = EXTRACTION_STATUS_PENDING
+    extracted_observation_count = 0
+    extraction_timestamp = None
+    extraction_results = []
+    extraction_reused = False
 
     try:
         _persist_state(
@@ -75,6 +93,13 @@ def prepare_evaluation(
             acquisition_status,
             acquired_documents,
             acquisition_warnings,
+            extraction_status,
+            extracted_observation_count,
+            extraction_timestamp,
+            extraction_results,
+            extraction_warnings,
+            extraction_reused,
+            extractor_version,
             preparation.get("thesis_id"),
             preparation_action,
             "pending",
@@ -102,6 +127,13 @@ def prepare_evaluation(
             acquisition_status,
             acquired_documents,
             acquisition_warnings,
+            extraction_status,
+            extracted_observation_count,
+            extraction_timestamp,
+            extraction_results,
+            extraction_warnings,
+            extraction_reused,
+            extractor_version,
             thesis_id,
             preparation_action,
             thesis_action,
@@ -123,6 +155,21 @@ def prepare_evaluation(
             providers=acquisition_providers,
         )
 
+        (
+            extraction_status,
+            extracted_observation_count,
+            extraction_timestamp,
+            extraction_results,
+            extraction_warnings,
+            extraction_reused,
+        ) = _resolve_automatic_extraction(
+            preparation_id=preparation["id"],
+            thesis_id=thesis_id,
+            acquired_documents=acquired_documents,
+            extractor_version=extractor_version,
+            refresh=extraction_refresh,
+        )
+
         workspace_ready = _verify_workspace_ready(thesis_id, errors)
         if workspace_ready:
             _persist_state(
@@ -138,6 +185,13 @@ def prepare_evaluation(
                 acquisition_status,
                 acquired_documents,
                 acquisition_warnings,
+                extraction_status,
+                extracted_observation_count,
+                extraction_timestamp,
+                extraction_results,
+                extraction_warnings,
+                extraction_reused,
+                extractor_version,
                 thesis_id,
                 preparation_action,
                 thesis_action,
@@ -155,6 +209,13 @@ def prepare_evaluation(
                 acquisition_status,
                 acquired_documents,
                 acquisition_warnings,
+                extraction_status,
+                extracted_observation_count,
+                extraction_timestamp,
+                extraction_results,
+                extraction_warnings,
+                extraction_reused,
+                extractor_version,
                 thesis_id,
                 preparation_action,
                 thesis_action,
@@ -173,6 +234,13 @@ def prepare_evaluation(
                 acquisition_status,
                 acquired_documents,
                 acquisition_warnings,
+                extraction_status,
+                extracted_observation_count,
+                extraction_timestamp,
+                extraction_results,
+                extraction_warnings,
+                extraction_reused,
+                extractor_version,
                 thesis_id,
                 preparation_action,
                 thesis_action,
@@ -192,6 +260,13 @@ def prepare_evaluation(
             ACQUISITION_STATUS_FAILED,
             [],
             [],
+            EXTRACTION_STATUS_FAILED,
+            0,
+            None,
+            [],
+            [],
+            False,
+            extractor_version,
             preparation.get("thesis_id"),
             preparation_action,
             "failed",
@@ -250,13 +325,19 @@ def _get_or_create_preparation(ticker, observation_date):
             evidence_acquisition_status,
             acquired_document_count,
             acquisition_warnings_json,
+            extraction_status,
+            extracted_observation_count,
+            extraction_timestamp,
+            extraction_warnings_json,
+            extraction_reused,
+            extractor_version,
             warnings_json,
             errors_json,
             status_json,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             ticker,
@@ -271,6 +352,12 @@ def _get_or_create_preparation(ticker, observation_date):
             ACQUISITION_STATUS_PENDING,
             0,
             json.dumps([]),
+            EXTRACTION_STATUS_PENDING,
+            0,
+            None,
+            json.dumps([]),
+            0,
+            DEFAULT_EXTRACTOR_VERSION,
             json.dumps([]),
             json.dumps([]),
             json.dumps({}),
@@ -368,7 +455,26 @@ def _resolve_source_acquisition(preparation_id, thesis_id, discovery_status, can
         acquired_documents=acquired_documents,
     )
 
-    return acquisition_status, acquired_documents, acquisition_warnings
+    persisted_documents = _load_persisted_acquired_documents(preparation_id)
+    return acquisition_status, persisted_documents, acquisition_warnings
+
+
+def _resolve_automatic_extraction(preparation_id, thesis_id, acquired_documents, extractor_version, refresh):
+    extraction_result = coordinate_extraction(
+        preparation_id=preparation_id,
+        thesis_id=thesis_id,
+        acquired_documents=acquired_documents,
+        extractor_version=extractor_version,
+        refresh=bool(refresh),
+    )
+    return (
+        str(extraction_result.get("extraction_status", EXTRACTION_STATUS_NOT_ATTEMPTED)).strip(),
+        int(extraction_result.get("extracted_observation_count") or 0),
+        extraction_result.get("extraction_timestamp"),
+        extraction_result.get("extraction_results", []) or [],
+        extraction_result.get("extraction_warnings", []) or [],
+        bool(extraction_result.get("extraction_reused", False)),
+    )
 
 
 def _persist_state(
@@ -384,6 +490,13 @@ def _persist_state(
     evidence_acquisition_status,
     acquired_documents,
     acquisition_warnings,
+    extraction_status,
+    extracted_observation_count,
+    extraction_timestamp,
+    extraction_results,
+    extraction_warnings,
+    extraction_reused,
+    extractor_version,
     thesis_id,
     preparation_action,
     thesis_action,
@@ -409,6 +522,13 @@ def _persist_state(
         ),
         "acquired_documents": list(acquired_documents),
         "acquisition_warnings": list(acquisition_warnings),
+        "extraction_status": extraction_status,
+        "extracted_observation_count": int(extracted_observation_count),
+        "extraction_timestamp": extraction_timestamp,
+        "extraction_results": list(extraction_results),
+        "extraction_warnings": list(extraction_warnings),
+        "extraction_reused": bool(extraction_reused),
+        "extractor_version": str(extractor_version).strip() if extractor_version else DEFAULT_EXTRACTOR_VERSION,
         "preparation_action": preparation_action,
         "thesis_action": thesis_action,
         "warnings": list(warnings),
@@ -419,6 +539,7 @@ def _persist_state(
             "workspace": "complete" if workspace_ready else ("failed" if errors else "pending"),
             "evidence_discovery": evidence_discovery_status,
             "evidence_acquisition": evidence_acquisition_status,
+            "extraction": extraction_status,
         },
         "updated_at": updated_at,
         "created_at": created_at,
@@ -437,6 +558,12 @@ def _persist_state(
             evidence_acquisition_status = ?,
             acquired_document_count = ?,
             acquisition_warnings_json = ?,
+            extraction_status = ?,
+            extracted_observation_count = ?,
+            extraction_timestamp = ?,
+            extraction_warnings_json = ?,
+            extraction_reused = ?,
+            extractor_version = ?,
             warnings_json = ?,
             errors_json = ?,
             status_json = ?,
@@ -454,6 +581,12 @@ def _persist_state(
             evidence_acquisition_status,
             len([item for item in acquired_documents if str(item.get("acquisition_status", "")).strip() == ACQUISITION_STATUS_ACQUIRED]),
             json.dumps(list(acquisition_warnings)),
+            extraction_status,
+            int(extracted_observation_count),
+            extraction_timestamp,
+            json.dumps(list(extraction_warnings)),
+            1 if extraction_reused else 0,
+            str(extractor_version).strip() if extractor_version else DEFAULT_EXTRACTOR_VERSION,
             json.dumps(list(warnings)),
             json.dumps(list(errors)),
             json.dumps(status_object),
@@ -487,6 +620,13 @@ def _load_preparation_object(preparation_id):
         "acquired_document_count": int(preparation.get("acquired_document_count") or 0),
         "acquired_documents": _load_persisted_acquired_documents(preparation["id"]),
         "acquisition_warnings": _load_json_list(preparation.get("acquisition_warnings_json")),
+        "extraction_status": str(preparation.get("extraction_status", EXTRACTION_STATUS_PENDING)).strip(),
+        "extracted_observation_count": int(preparation.get("extracted_observation_count") or 0),
+        "extraction_timestamp": str(preparation.get("extraction_timestamp", "")).strip() if preparation.get("extraction_timestamp") is not None else None,
+        "extraction_results": _load_persisted_extraction_results(preparation["id"]),
+        "extraction_warnings": _load_json_list(preparation.get("extraction_warnings_json")),
+        "extraction_reused": bool(int(preparation.get("extraction_reused") or 0)),
+        "extractor_version": str(preparation.get("extractor_version", DEFAULT_EXTRACTOR_VERSION)).strip() if preparation.get("extractor_version") is not None else DEFAULT_EXTRACTOR_VERSION,
         "preparation_action": "unknown",
         "thesis_action": "unknown",
         "warnings": _load_json_list(preparation.get("warnings_json")),
@@ -497,6 +637,7 @@ def _load_preparation_object(preparation_id):
             "workspace": "complete" if bool(preparation["workspace_ready"]) else "pending",
             "evidence_discovery": str(preparation.get("evidence_discovery_status", DISCOVERY_STATUS_PENDING)).strip(),
             "evidence_acquisition": str(preparation.get("evidence_acquisition_status", ACQUISITION_STATUS_PENDING)).strip(),
+            "extraction": str(preparation.get("extraction_status", EXTRACTION_STATUS_PENDING)).strip(),
         },
         "updated_at": preparation["updated_at"],
         "created_at": preparation["created_at"],
@@ -633,11 +774,12 @@ def _persist_acquired_documents(preparation_id, thesis_id, acquired_documents):
                 source_reference,
                 content_type,
                 source_content,
+                source_content_hash,
                 acquisition_error,
                 warnings_json,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 int(preparation_id),
@@ -657,6 +799,7 @@ def _persist_acquired_documents(preparation_id, thesis_id, acquired_documents):
                 str(document.get("source_reference", "")).strip() or None,
                 str(document.get("content_type", "")).strip() or None,
                 str(document.get("source_content", "")).strip() or None,
+                str(document.get("source_content_hash", "")).strip() or None,
                 str(document.get("acquisition_error", "")).strip() or None,
                 json.dumps(document.get("warnings", [])),
                 now_value,
@@ -668,6 +811,7 @@ def _load_persisted_acquired_documents(preparation_id):
     acquired_df = fetch_dataframe(
         """
         SELECT
+            id,
             title,
             source,
             document_type,
@@ -683,6 +827,7 @@ def _load_persisted_acquired_documents(preparation_id):
             source_reference,
             content_type,
             source_content,
+            source_content_hash,
             acquisition_error,
             warnings_json
         FROM evaluation_acquired_documents
@@ -698,6 +843,7 @@ def _load_persisted_acquired_documents(preparation_id):
     for _, row in acquired_df.iterrows():
         records.append(
             {
+                "id": _coerce_int(row["id"]),
                 "title": str(row["title"]).strip() if row["title"] is not None else "",
                 "source": str(row["source"]).strip() if row["source"] is not None else "",
                 "document_type": str(row["document_type"]).strip() if row["document_type"] is not None else "",
@@ -713,6 +859,7 @@ def _load_persisted_acquired_documents(preparation_id):
                 "source_reference": str(row["source_reference"]).strip() if row["source_reference"] is not None else "",
                 "content_type": str(row["content_type"]).strip() if row["content_type"] is not None else "",
                 "source_content": str(row["source_content"]).strip() if row["source_content"] is not None else "",
+                "source_content_hash": str(row["source_content_hash"]).strip() if row["source_content_hash"] is not None else "",
                 "acquisition_error": str(row["acquisition_error"]).strip() if row["acquisition_error"] is not None else "",
                 "warnings": _load_json_list(row["warnings_json"]),
                 "acquired_source_material": True,
@@ -729,6 +876,46 @@ def _load_persisted_acquisition_warnings(preparation_id):
     if prep_df.empty:
         return []
     return _load_json_list(prep_df.iloc[0]["acquisition_warnings_json"])
+
+
+def _load_persisted_extraction_results(preparation_id):
+    extraction_df = fetch_dataframe(
+        """
+        SELECT
+            id,
+            acquired_document_id,
+            extraction_status,
+            extraction_timestamp,
+            extractor_version,
+            reused,
+            observation_count,
+            warning_message,
+            error_message
+        FROM evaluation_extraction_runs
+        WHERE preparation_id = ?
+        ORDER BY id ASC
+        """,
+        (int(preparation_id),),
+    )
+    if extraction_df.empty:
+        return []
+
+    records = []
+    for _, row in extraction_df.iterrows():
+        records.append(
+            {
+                "run_id": _coerce_int(row["id"]),
+                "acquired_document_id": _coerce_int(row["acquired_document_id"]),
+                "extraction_status": str(row["extraction_status"]).strip() if row["extraction_status"] is not None else EXTRACTION_STATUS_NOT_ATTEMPTED,
+                "extraction_timestamp": str(row["extraction_timestamp"]).strip() if row["extraction_timestamp"] is not None else None,
+                "extractor_version": str(row["extractor_version"]).strip() if row["extractor_version"] is not None else DEFAULT_EXTRACTOR_VERSION,
+                "reused": bool(int(row["reused"])) if row["reused"] is not None else False,
+                "observation_count": int(row["observation_count"] or 0),
+                "warning": str(row["warning_message"]).strip() if row["warning_message"] is not None else "",
+                "error": str(row["error_message"]).strip() if row["error_message"] is not None else "",
+            }
+        )
+    return records
 
 
 def _fetch_preparation_row(preparation_id):
@@ -787,6 +974,13 @@ def _build_ephemeral_failure(ticker, observation_date):
         "acquired_document_count": 0,
         "acquired_documents": [],
         "acquisition_warnings": [],
+        "extraction_status": EXTRACTION_STATUS_FAILED,
+        "extracted_observation_count": 0,
+        "extraction_timestamp": None,
+        "extraction_results": [],
+        "extraction_warnings": [],
+        "extraction_reused": False,
+        "extractor_version": DEFAULT_EXTRACTOR_VERSION,
         "preparation_action": "failed",
         "thesis_action": "failed",
         "warnings": [],
@@ -797,6 +991,7 @@ def _build_ephemeral_failure(ticker, observation_date):
             "workspace": "pending",
             "evidence_discovery": DISCOVERY_STATUS_FAILED,
             "evidence_acquisition": ACQUISITION_STATUS_FAILED,
+            "extraction": EXTRACTION_STATUS_FAILED,
         },
         "updated_at": None,
         "created_at": None,

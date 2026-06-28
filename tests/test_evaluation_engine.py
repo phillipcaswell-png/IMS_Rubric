@@ -34,6 +34,12 @@ class EvaluationEngineTests(unittest.TestCase):
         self.assertIsInstance(result["acquired_document_count"], int)
         self.assertIsInstance(result["acquired_documents"], list)
         self.assertIsInstance(result["acquisition_warnings"], list)
+        self.assertIn(result["extraction_status"], ["completed", "unsupported", "failed", "pending", "not_attempted"])
+        self.assertIsInstance(result["extracted_observation_count"], int)
+        self.assertIsInstance(result["extraction_results"], list)
+        self.assertIsInstance(result["extraction_warnings"], list)
+        self.assertIsInstance(result["extraction_reused"], bool)
+        self.assertIsInstance(result["extractor_version"], str)
         self.assertEqual(result["preparation_action"], "created")
         self.assertEqual(result["thesis_action"], "created")
         self.assertIsInstance(result["preparation_id"], int)
@@ -57,6 +63,13 @@ class EvaluationEngineTests(unittest.TestCase):
                     "acquired_document_count",
                     "acquired_documents",
                     "acquisition_warnings",
+                    "extraction_status",
+                    "extracted_observation_count",
+                    "extraction_timestamp",
+                    "extraction_results",
+                    "extraction_warnings",
+                    "extraction_reused",
+                    "extractor_version",
                     "preparation_action",
                     "thesis_action",
                     "warnings",
@@ -164,6 +177,7 @@ class EvaluationEngineTests(unittest.TestCase):
 
         self.assertEqual(result["evidence_discovery_status"], "unavailable")
         self.assertEqual(result["acquisition_status"], "not_attempted")
+        self.assertEqual(result["extraction_status"], "not_attempted")
         self.assertEqual(result["acquired_document_count"], 0)
         self.assertEqual(result["acquired_documents"], [])
 

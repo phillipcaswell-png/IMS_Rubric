@@ -15,6 +15,8 @@ from services import (
     get_business_evidence_coverage,
     get_candidate_evidence_for_thesis,
     get_acquired_source_material_for_thesis,
+    get_extraction_runs_for_thesis,
+    get_extracted_observations_for_thesis,
     get_available_evidence_items,
     get_observations_for_evidence,
     get_observations_for_pillar,
@@ -481,6 +483,11 @@ def render_preparation_status(status_obj):
     acquisition_status = str(status_obj.get("acquisition_status", "pending")).strip()
     acquired_document_count = int(status_obj.get("acquired_document_count", 0) or 0)
     acquisition_warnings = status_obj.get("acquisition_warnings", []) or []
+    extraction_status = str(status_obj.get("extraction_status", "pending")).strip()
+    extracted_observation_count = int(status_obj.get("extracted_observation_count", 0) or 0)
+    extraction_warnings = status_obj.get("extraction_warnings", []) or []
+    extraction_reused = bool(status_obj.get("extraction_reused", False))
+    extractor_version = str(status_obj.get("extractor_version", "")).strip()
     workspace_ready = bool(status_obj.get("workspace_ready"))
     warnings = status_obj.get("warnings", []) or []
     errors = status_obj.get("errors", []) or []
@@ -532,11 +539,28 @@ def render_preparation_status(status_obj):
     else:
         lines.append("… Source Material Acquisition Pending")
 
+    if extraction_status == "completed":
+        reuse_text = "reused" if extraction_reused else "new"
+        lines.append(f"✓ Automatic Extraction Completed ({extracted_observation_count}, {reuse_text})")
+    elif extraction_status == "unsupported":
+        lines.append("⚠ Automatic Extraction Unsupported")
+    elif extraction_status == "failed":
+        lines.append("⚠ Automatic Extraction Failed")
+    elif extraction_status == "not_attempted":
+        lines.append("… Automatic Extraction Not Attempted")
+    else:
+        lines.append("… Automatic Extraction Pending")
+    if extractor_version:
+        lines.append(f"Extractor Version: {extractor_version}")
+
     for discovery_warning in discovery_warnings:
         lines.append(f"⚠ {discovery_warning}")
 
     for acquisition_warning in acquisition_warnings:
         lines.append(f"⚠ {acquisition_warning}")
+
+    for extraction_warning in extraction_warnings:
+        lines.append(f"⚠ {extraction_warning}")
 
     for warning_text in warnings:
         lines.append(f"⚠ {warning_text}")
@@ -948,6 +972,8 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
     context = _build_assessment_workspace_context(thesis_id, pillar_id)
     candidate_df = get_candidate_evidence_for_thesis(thesis_id)
     acquired_df = get_acquired_source_material_for_thesis(thesis_id)
+    extraction_runs_df = get_extraction_runs_for_thesis(thesis_id)
+    extracted_observations_df = get_extracted_observations_for_thesis(thesis_id)
     preparation_df = fetch_dataframe(
         """
         SELECT
@@ -956,7 +982,13 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
             discovery_warnings_json,
             evidence_acquisition_status,
             acquired_document_count,
-            acquisition_warnings_json
+            acquisition_warnings_json,
+            extraction_status,
+            extracted_observation_count,
+            extraction_timestamp,
+            extraction_warnings_json,
+            extraction_reused,
+            extractor_version
         FROM evaluation_preparations
         WHERE thesis_id = ?
         ORDER BY updated_at DESC, id DESC
@@ -968,6 +1000,12 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
     discovery_warnings = []
     evidence_acquisition_status = "pending"
     acquisition_warnings = []
+    extraction_status = "pending"
+    extracted_observation_count = 0
+    extraction_timestamp = None
+    extraction_warnings = []
+    extraction_reused = False
+    extractor_version = ""
     if not preparation_df.empty:
         prep_row = preparation_df.iloc[0]
         if pd.notna(prep_row["evidence_discovery_status"]) and str(prep_row["evidence_discovery_status"]).strip():
@@ -988,6 +1026,22 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
                     acquisition_warnings = []
             except (ValueError, TypeError):
                 acquisition_warnings = []
+        if pd.notna(prep_row["extraction_status"]) and str(prep_row["extraction_status"]).strip():
+            extraction_status = str(prep_row["extraction_status"]).strip()
+        if pd.notna(prep_row["extracted_observation_count"]):
+            extracted_observation_count = int(prep_row["extracted_observation_count"] or 0)
+        if pd.notna(prep_row["extraction_timestamp"]) and str(prep_row["extraction_timestamp"]).strip():
+            extraction_timestamp = str(prep_row["extraction_timestamp"]).strip()
+        if pd.notna(prep_row["extraction_warnings_json"]) and str(prep_row["extraction_warnings_json"]).strip():
+            try:
+                extraction_warnings = json.loads(str(prep_row["extraction_warnings_json"]))
+                if not isinstance(extraction_warnings, list):
+                    extraction_warnings = []
+            except (ValueError, TypeError):
+                extraction_warnings = []
+        extraction_reused = bool(int(prep_row["extraction_reused"])) if pd.notna(prep_row["extraction_reused"]) else False
+        if pd.notna(prep_row["extractor_version"]) and str(prep_row["extractor_version"]).strip():
+            extractor_version = str(prep_row["extractor_version"]).strip()
     gate_result = validate_decision_gate(thesis_id)
 
     progress_df = fetch_dataframe(
@@ -1095,6 +1149,68 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
                 st.caption("Source acquisition did not run because discovery did not produce acquirable candidates.")
             else:
                 st.caption("Source acquisition has not yet produced records for this thesis.")
+
+        st.markdown("**Extracted Observations**")
+        st.caption("Machine-generated preparation only. Extracted observations are not analyst-governed evidence.")
+        st.caption(f"Extraction Status: {extraction_status}")
+        st.caption(f"Extracted Observation Count: {extracted_observation_count}")
+        if extraction_timestamp:
+            st.caption(f"Extraction Timestamp: {extraction_timestamp}")
+        if extractor_version:
+            st.caption(f"Extractor Version: {extractor_version}")
+        st.caption(f"Extraction Mode: {'Reused' if extraction_reused else 'New/Partial'}")
+        if extraction_warnings:
+            for warning in extraction_warnings:
+                st.warning(str(warning))
+
+        if not extraction_runs_df.empty:
+            run_rows = extraction_runs_df.copy()
+            run_rows["reuse_indicator"] = run_rows["reused"].apply(
+                lambda value: "Reused" if str(value).strip() in ["1", "1.0", "True", "true"] else "New"
+            )
+            visible_run_columns = [
+                column for column in [
+                    "title",
+                    "source",
+                    "document_type",
+                    "extraction_status",
+                    "observation_count",
+                    "extraction_timestamp",
+                    "reuse_indicator",
+                    "warning_message",
+                    "error_message",
+                ] if column in run_rows.columns
+            ]
+            st.dataframe(run_rows[visible_run_columns], use_container_width=True)
+        else:
+            if extraction_status == "completed":
+                st.caption("Extraction completed but no run metadata is currently available.")
+            elif extraction_status == "unsupported":
+                st.caption("Extraction is currently unsupported for available acquired materials.")
+            elif extraction_status == "failed":
+                st.caption("Automatic extraction failed during preparation. You can continue governed review.")
+            elif extraction_status == "not_attempted":
+                st.caption("Automatic extraction did not run because there was no eligible acquired source material.")
+            else:
+                st.caption("Automatic extraction has not yet produced run records for this thesis.")
+
+        if not extracted_observations_df.empty:
+            preview_rows = extracted_observations_df.copy()
+            preview_rows["machine_generated"] = "Machine Generated"
+            visible_observation_columns = [
+                column for column in [
+                    "machine_generated",
+                    "title",
+                    "extraction_status",
+                    "observation_count",
+                    "extraction_timestamp",
+                    "passage",
+                    "pillar_signal",
+                    "confidence",
+                    "source_location",
+                ] if column in preview_rows.columns
+            ]
+            st.dataframe(preview_rows[visible_observation_columns], use_container_width=True)
 
         st.markdown("**Evidence Context**")
         supporting_rows = context["supporting_evidence"]

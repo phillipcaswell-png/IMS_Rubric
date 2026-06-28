@@ -84,6 +84,12 @@ def init_db():
             evidence_acquisition_status TEXT DEFAULT 'pending',
             acquired_document_count INTEGER DEFAULT 0,
             acquisition_warnings_json TEXT,
+            extraction_status TEXT DEFAULT 'pending',
+            extracted_observation_count INTEGER DEFAULT 0,
+            extraction_timestamp TEXT,
+            extraction_warnings_json TEXT,
+            extraction_reused INTEGER DEFAULT 0,
+            extractor_version TEXT,
             warnings_json TEXT,
             errors_json TEXT,
             status_json TEXT,
@@ -122,6 +128,36 @@ def init_db():
 
     try:
         cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN acquisition_warnings_json TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN extraction_status TEXT DEFAULT 'pending'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN extracted_observation_count INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN extraction_timestamp TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN extraction_warnings_json TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN extraction_reused INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN extractor_version TEXT")
     except sqlite3.OperationalError:
         pass
 
@@ -169,12 +205,71 @@ def init_db():
             source_reference TEXT,
             content_type TEXT,
             source_content TEXT,
+            source_content_hash TEXT,
             acquisition_error TEXT,
             warnings_json TEXT,
             created_at TEXT NOT NULL,
             UNIQUE(preparation_id, provider_name, original_candidate_identifier, reference_url),
             FOREIGN KEY (preparation_id) REFERENCES evaluation_preparations(id),
             FOREIGN KEY (thesis_id) REFERENCES theses(id)
+        )
+        """
+    )
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_acquired_documents ADD COLUMN source_content_hash TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evaluation_extraction_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            preparation_id INTEGER NOT NULL,
+            thesis_id INTEGER,
+            acquired_document_id INTEGER,
+            original_candidate_identifier TEXT,
+            source_reference TEXT,
+            acquisition_timestamp TEXT,
+            extraction_status TEXT NOT NULL,
+            extraction_timestamp TEXT,
+            extractor_version TEXT,
+            source_content_hash TEXT,
+            reused INTEGER DEFAULT 0,
+            observation_count INTEGER DEFAULT 0,
+            warning_message TEXT,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (preparation_id) REFERENCES evaluation_preparations(id),
+            FOREIGN KEY (thesis_id) REFERENCES theses(id),
+            FOREIGN KEY (acquired_document_id) REFERENCES evaluation_acquired_documents(id)
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evaluation_extracted_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            extraction_run_id INTEGER NOT NULL,
+            preparation_id INTEGER NOT NULL,
+            thesis_id INTEGER,
+            acquired_document_id INTEGER,
+            original_candidate_identifier TEXT,
+            source_reference TEXT,
+            acquisition_timestamp TEXT,
+            extraction_timestamp TEXT,
+            extractor_version TEXT,
+            passage TEXT NOT NULL,
+            pillar_signal TEXT,
+            confidence TEXT,
+            source_location TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (extraction_run_id) REFERENCES evaluation_extraction_runs(id),
+            FOREIGN KEY (preparation_id) REFERENCES evaluation_preparations(id),
+            FOREIGN KEY (thesis_id) REFERENCES theses(id),
+            FOREIGN KEY (acquired_document_id) REFERENCES evaluation_acquired_documents(id)
         )
         """
     )
@@ -754,6 +849,7 @@ def get_acquired_source_material_for_thesis(thesis_id):
             ead.retrieval_timestamp,
             ead.source_reference,
             ead.content_type,
+            ead.source_content_hash,
             ead.acquisition_error,
             ead.warnings_json,
             ead.created_at
@@ -766,6 +862,47 @@ def get_acquired_source_material_for_thesis(thesis_id):
             LIMIT 1
         ) latest_prep ON latest_prep.id = ead.preparation_id
         ORDER BY ead.created_at DESC, ead.id DESC
+        """,
+        (int(thesis_id),),
+    )
+
+
+def get_extracted_observations_for_thesis(thesis_id):
+    """Return extraction-stage observations for the most recent preparation of a thesis."""
+    return fetch_dataframe(
+        """
+        SELECT
+            eo.id,
+            eo.preparation_id,
+            eo.thesis_id,
+            eo.acquired_document_id,
+            er.extraction_status,
+            er.reused,
+            er.observation_count,
+            er.extraction_timestamp,
+            er.extractor_version,
+            er.warning_message,
+            er.error_message,
+            ead.title,
+            ead.source,
+            ead.document_type,
+            ead.source_reference,
+            ead.reference_url,
+            eo.passage,
+            eo.pillar_signal,
+            eo.confidence,
+            eo.source_location
+        FROM evaluation_extracted_observations eo
+        JOIN evaluation_extraction_runs er ON er.id = eo.extraction_run_id
+        LEFT JOIN evaluation_acquired_documents ead ON ead.id = eo.acquired_document_id
+        JOIN (
+            SELECT id
+            FROM evaluation_preparations
+            WHERE thesis_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+        ) latest_prep ON latest_prep.id = eo.preparation_id
+        ORDER BY eo.id ASC
         """,
         (int(thesis_id),),
     )
@@ -1093,6 +1230,154 @@ def update_evidence_item(
     return True
 
 
+def extract_observation_suggestions_from_text(
+    thesis_id,
+    document_text,
+    title=None,
+    subject_id=None,
+    max_suggestions=5,
+):
+    """Invoke Theia extraction on raw text and return normalized suggestion payload."""
+    thesis_id_value = int(thesis_id) if thesis_id is not None else None
+    subject_token = str(subject_id).strip() if subject_id is not None and str(subject_id).strip() else "text"
+    title_value = str(title).strip() if title is not None else ""
+    effective_document_text = str(document_text).strip() if document_text is not None and str(document_text).strip() else ""
+
+    if not effective_document_text:
+        if thesis_id_value is not None:
+            log_event(
+                thesis_id=thesis_id_value,
+                event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+                description=f"subject_id={subject_token}|suggestion_count=0",
+                created_by="System",
+                version="1.0",
+            )
+        return {
+            "success": False,
+            "message": "Extraction blocked: source_text or document_text is required.",
+            "suggestions": [],
+        }
+
+    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not anthropic_api_key:
+        if thesis_id_value is not None:
+            log_event(
+                thesis_id=thesis_id_value,
+                event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+                description=f"subject_id={subject_token}|suggestion_count=0",
+                created_by="System",
+                version="1.0",
+            )
+        return {
+            "success": False,
+            "message": "Missing Anthropic API configuration: ANTHROPIC_API_KEY.",
+            "suggestions": [],
+        }
+
+    try:
+        import anthropic
+    except ImportError:
+        if thesis_id_value is not None:
+            log_event(
+                thesis_id=thesis_id_value,
+                event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+                description=f"subject_id={subject_token}|suggestion_count=0",
+                created_by="System",
+                version="1.0",
+            )
+        return {
+            "success": False,
+            "message": "Missing Anthropic SDK dependency: anthropic.",
+            "suggestions": [],
+        }
+
+    client = anthropic.Anthropic(api_key=anthropic_api_key)
+    system_prompt = (
+        "You are Theia, an evidence extraction assistant for a governed investment research workflow. "
+        "Extract up to 5 high-signal passages from the provided source text. "
+        "Return strict JSON only with this schema: "
+        "{\"suggestions\":[{\"passage\":string,\"pillar_signal\":string,\"confidence\":string,\"source_location\":string}]}. "
+        "Do not return any additional fields."
+    )
+
+    user_prompt = (
+        f"Subject id: {subject_token}\n"
+        f"Title: {title_value}\n\n"
+        "Source text:\n"
+        f"{effective_document_text}"
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1200,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        raw_text = ""
+        if getattr(response, "content", None):
+            for block in response.content:
+                if getattr(block, "type", "") == "text":
+                    raw_text += getattr(block, "text", "")
+
+        clean_text = raw_text.strip()
+        if clean_text.startswith("```"):
+            lines = clean_text.split("\n")
+            clean_text = "\n".join(line for line in lines if not line.strip().startswith("```")).strip()
+        parsed = json.loads(clean_text) if clean_text else {"suggestions": []}
+        raw_suggestions = parsed.get("suggestions", []) if isinstance(parsed, dict) else []
+    except Exception as exc:
+        if thesis_id_value is not None:
+            log_event(
+                thesis_id=thesis_id_value,
+                event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+                description=f"subject_id={subject_token}|suggestion_count=0",
+                created_by="System",
+                version="1.0",
+            )
+        return {
+            "success": False,
+            "message": f"Extraction failed: {str(exc)}",
+            "suggestions": [],
+        }
+
+    suggestions = []
+    max_count = max(1, int(max_suggestions))
+    for candidate in raw_suggestions:
+        if not isinstance(candidate, dict):
+            continue
+        passage_value = str(candidate.get("passage", "")).strip()
+        if not passage_value:
+            continue
+        suggestions.append(
+            {
+                "passage": passage_value,
+                "pillar_signal": str(candidate.get("pillar_signal", "")).strip(),
+                "confidence": str(candidate.get("confidence", "")).strip(),
+                "source_location": str(candidate.get("source_location", "")).strip(),
+            }
+        )
+        if len(suggestions) >= max_count:
+            break
+
+    if thesis_id_value is not None:
+        log_event(
+            thesis_id=thesis_id_value,
+            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+            description=f"subject_id={subject_token}|suggestion_count={len(suggestions)}",
+            created_by="System",
+            version="1.0",
+        )
+
+    return {
+        "success": True,
+        "message": f"Generated {len(suggestions)} extraction suggestion(s).",
+        "suggestions": suggestions,
+    }
+
+
 def get_extraction_suggestions(evidence_item_id, document_text=None):
     """Return ephemeral extraction suggestions for a promoted evidence item."""
     promotion_check = _resolve_promoted_evidence_item(evidence_item_id)
@@ -1131,140 +1416,52 @@ def get_extraction_suggestions(evidence_item_id, document_text=None):
         )
     )
 
-    if not effective_document_text:
-        log_event(
-            thesis_id=thesis_id,
-            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
-            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
-            created_by="System",
-            version="1.0",
-        )
-        return {
-            "success": False,
-            "message": "Extraction blocked: source_text or document_text is required.",
-            "suggestions": [],
-        }
-
-    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not anthropic_api_key:
-        log_event(
-            thesis_id=thesis_id,
-            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
-            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
-            created_by="System",
-            version="1.0",
-        )
-        return {
-            "success": False,
-            "message": "Missing Anthropic API configuration: ANTHROPIC_API_KEY.",
-            "suggestions": [],
-        }
-
-    try:
-        import anthropic
-    except ImportError:
-        log_event(
-            thesis_id=thesis_id,
-            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
-            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
-            created_by="System",
-            version="1.0",
-        )
-        return {
-            "success": False,
-            "message": "Missing Anthropic SDK dependency: anthropic.",
-            "suggestions": [],
-        }
-
-    client = anthropic.Anthropic(api_key=anthropic_api_key)
-
-    system_prompt = (
-        "You are Theia, an evidence extraction assistant for a governed investment research workflow. "
-        "Extract up to 5 high-signal passages from the provided source text. "
-        "Return strict JSON only with this schema: "
-        "{\"suggestions\":[{\"passage\":string,\"pillar_signal\":string,\"confidence\":string,\"source_location\":string}]}. "
-        "Do not return any additional fields."
-    )
-
-    user_prompt = (
-        f"Evidence item id: {int(evidence_item_id)}\n"
-        f"Title: {str(evidence_row['title']).strip() if pd.notna(evidence_row['title']) else ''}\n\n"
-        "Source text:\n"
-        f"{effective_document_text}"
-    )
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1200,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        raw_text = ""
-        if getattr(response, "content", None):
-            for block in response.content:
-                if getattr(block, "type", "") == "text":
-                    raw_text += getattr(block, "text", "")
-
-        clean_text = raw_text.strip()
-        if clean_text.startswith("```"):
-            lines = clean_text.split("\n")
-            clean_text = "\n".join(
-                line for line in lines
-                if not line.strip().startswith("```")
-            ).strip()
-        parsed = json.loads(clean_text) if clean_text else {"suggestions": []}
-        raw_suggestions = parsed.get("suggestions", []) if isinstance(parsed, dict) else []
-    except Exception as exc:
-        log_event(
-            thesis_id=thesis_id,
-            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
-            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
-            created_by="System",
-            version="1.0",
-        )
-        return {
-            "success": False,
-            "message": f"Extraction failed: {str(exc)}",
-            "suggestions": [],
-        }
-
-    suggestions = []
-    for candidate in raw_suggestions:
-        if not isinstance(candidate, dict):
-            continue
-        passage_value = str(candidate.get("passage", "")).strip()
-        if not passage_value:
-            continue
-        pillar_signal_value = str(candidate.get("pillar_signal", "")).strip()
-        confidence_value = str(candidate.get("confidence", "")).strip()
-        source_location_value = str(candidate.get("source_location", "")).strip()
-        suggestions.append(
-            {
-                "passage": passage_value,
-                "pillar_signal": pillar_signal_value,
-                "confidence": confidence_value,
-                "source_location": source_location_value,
-            }
-        )
-        if len(suggestions) >= 5:
-            break
-
-    log_event(
+    return extract_observation_suggestions_from_text(
         thesis_id=thesis_id,
-        event_type=EVENT_THEIA_EXTRACTION_INVOKED,
-        description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count={len(suggestions)}",
-        created_by="System",
-        version="1.0",
+        document_text=effective_document_text,
+        title=str(evidence_row["title"]).strip() if pd.notna(evidence_row["title"]) else "",
+        subject_id=f"evidence_item_id={int(evidence_item_id)}",
     )
 
-    return {
-        "success": True,
-        "message": f"Generated {len(suggestions)} extraction suggestion(s).",
-        "suggestions": suggestions,
-    }
+
+def get_extraction_runs_for_thesis(thesis_id):
+    """Return extraction run records for the most recent preparation of a thesis."""
+    return fetch_dataframe(
+        """
+        SELECT
+            er.id,
+            er.preparation_id,
+            er.thesis_id,
+            er.acquired_document_id,
+            er.original_candidate_identifier,
+            er.source_reference,
+            er.acquisition_timestamp,
+            er.extraction_status,
+            er.extraction_timestamp,
+            er.extractor_version,
+            er.source_content_hash,
+            er.reused,
+            er.observation_count,
+            er.warning_message,
+            er.error_message,
+            ead.title,
+            ead.source,
+            ead.document_type,
+            ead.provider_name,
+            ead.discovery_provider
+        FROM evaluation_extraction_runs er
+        LEFT JOIN evaluation_acquired_documents ead ON ead.id = er.acquired_document_id
+        JOIN (
+            SELECT id
+            FROM evaluation_preparations
+            WHERE thesis_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+        ) latest_prep ON latest_prep.id = er.preparation_id
+        ORDER BY er.id ASC
+        """,
+        (int(thesis_id),),
+    )
 
 
 def update_staged_evidence_status(
