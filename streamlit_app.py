@@ -3089,15 +3089,75 @@ def render_home_sidebar_panels(rows):
         lifecycle_name = derive_lifecycle_display(row)
         lifecycle_counts[lifecycle_name] = lifecycle_counts.get(lifecycle_name, 0) + 1
 
-    with st.container(border=True):
-        st.markdown("### Portfolio Health Summary")
-        for label, value in health_counts.items():
-            st.write(f"{label}: {value}")
+    def _render_summary_card(title, total_label, total_value, segments):
+        total_value = int(total_value)
+        if total_value <= 0:
+            total_value = 0
+
+        start_angle = 0.0
+        gradient_parts = []
+        for segment in segments:
+            value = int(segment["value"])
+            if total_value > 0 and value > 0:
+                span = 360.0 * (value / total_value)
+                end_angle = start_angle + span
+                gradient_parts.append(f"{segment['color']} {start_angle:.2f}deg {end_angle:.2f}deg")
+                start_angle = end_angle
+        if not gradient_parts:
+            gradient_parts = ["#2A3348 0deg 360deg"]
+
+        legend_html = "".join(
+            f"<div class='home-summary-legend-row'><span class='home-summary-swatch' style='background:{segment['color']};'></span><span>{segment['label']}</span><span>{segment['value']}</span><span>{segment['pct']}</span></div>"
+            for segment in segments
+        )
+
+        st.markdown(
+            f"""
+            <div class='home-summary-card'>
+              <div class='home-summary-title'>{title}</div>
+              <div class='home-summary-body'>
+                <div class='home-summary-donut' style='background: conic-gradient({', '.join(gradient_parts)});'>
+                  <div class='home-summary-donut-inner'>
+                    <div class='home-summary-donut-value'>{total_value}</div>
+                    <div class='home-summary-donut-label'>{total_label}</div>
+                  </div>
+                </div>
+                <div class='home-summary-legend'>
+                  {legend_html}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     with st.container(border=True):
-        st.markdown("### Pipeline by Lifecycle")
-        for label, value in lifecycle_counts.items():
-            st.write(f"{label}: {value}")
+        _render_summary_card(
+            "Portfolio Health (Summary)",
+            "Evaluations",
+            len(rows),
+            [
+                {"label": "Strong", "value": health_counts.get("Strong Candidate", 0), "pct": f"{(health_counts.get('Strong Candidate', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#56C267"},
+                {"label": "Mixed", "value": health_counts.get("Mixed", 0), "pct": f"{(health_counts.get('Mixed', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#F0C14A"},
+                {"label": "Weak", "value": health_counts.get("Weak Candidate", 0), "pct": f"{(health_counts.get('Weak Candidate', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#FF7272"},
+                {"label": "High Risk", "value": health_counts.get("High Risk", 0), "pct": f"{(health_counts.get('High Risk', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#FF4F4F"},
+                {"label": "No Decision", "value": health_counts.get("No Decision", 0), "pct": f"{(health_counts.get('No Decision', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#6B7280"},
+            ],
+        )
+
+    with st.container(border=True):
+        _render_summary_card(
+            "Pipeline by Lifecycle",
+            "Evaluations",
+            len(rows),
+            [
+                {"label": "Preparation", "value": lifecycle_counts.get("Preparation", 0), "pct": f"{(lifecycle_counts.get('Preparation', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#6B7280"},
+                {"label": "Assessment", "value": lifecycle_counts.get("Assessment", 0), "pct": f"{(lifecycle_counts.get('Assessment', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#56C267"},
+                {"label": "Decision", "value": lifecycle_counts.get("Decision", 0), "pct": f"{(lifecycle_counts.get('Decision', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#F0C14A"},
+                {"label": "Historical Review", "value": lifecycle_counts.get("Historical Review", 0), "pct": f"{(lifecycle_counts.get('Historical Review', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#8B5CF6"},
+                {"label": "Framework Review", "value": lifecycle_counts.get("Framework Review", 0), "pct": f"{(lifecycle_counts.get('Framework Review', 0) / len(rows) * 100):.0f}%" if rows else "0%", "color": "#FF4F4F"},
+            ],
+        )
 
 
 # Sidebar navigation
@@ -3108,6 +3168,15 @@ with st.sidebar:
     render_sidebar_brand()
     st.divider()
     render_sidebar_primary_navigation(current_view)
+    st.divider()
+    if st.button("New Evaluation", key="sidebar_new_evaluation", use_container_width=True):
+        st.session_state["current_view"] = "New Thesis"
+        st.session_state["selected_thesis_id"] = None
+        st.rerun()
+    st.markdown(
+        "<div style='margin-top:0.8rem; color:#8D95A8; font-size:0.78rem; line-height:1.4;'>Athena v1.8.3<br/>Constitutional • Auditable • Reproducible</div>",
+        unsafe_allow_html=True,
+    )
 
 _capture_navigation_event()
 
@@ -3597,6 +3666,93 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
             font-weight: 600;
             margin-top: 0.45rem;
         }
+        .home-summary-card {
+            background: #0F1118;
+            border: 1px solid #1E2331;
+            border-radius: 14px;
+            padding: 1rem;
+            margin-bottom: 0.8rem;
+        }
+        .home-summary-title {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #E8E6E0;
+            margin-bottom: 0.8rem;
+        }
+        .home-summary-body {
+            display: flex;
+            gap: 0.9rem;
+            align-items: center;
+        }
+        .home-summary-donut {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            position: relative;
+            flex: 0 0 110px;
+        }
+        .home-summary-donut::after {
+            content: '';
+            position: absolute;
+            inset: 22px;
+            background: #0A0A0F;
+            border-radius: 50%;
+            border: 1px solid #1E2331;
+        }
+        .home-summary-donut-inner {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1;
+            text-align: center;
+        }
+        .home-summary-donut-value {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            line-height: 1;
+            color: #E8E6E0;
+        }
+        .home-summary-donut-label {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 0.68rem;
+            color: #A8ACB8;
+            margin-top: 0.2rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .home-summary-legend {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+        .home-summary-legend-row {
+            display: grid;
+            grid-template-columns: 10px 1fr auto auto;
+            align-items: center;
+            gap: 0.45rem;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 0.82rem;
+            color: #D8DCE6;
+        }
+        .home-summary-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+        .home-summary-legend-row span:nth-child(2) {
+            color: #E8E6E0;
+        }
+        .home-summary-legend-row span:nth-child(3),
+        .home-summary-legend-row span:nth-child(4) {
+            color: #A8ACB8;
+        }
         .home-footer-note {
             color: #8D95A8;
             text-align: center;
@@ -3828,6 +3984,8 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
                     event_time = format_display_value(event_row.get("created_at"))
                     st.write(f"{event_type}")
                     st.caption(f"{event_desc} • {event_time}")
+
+    render_athena_footer()
 
 elif st.session_state['current_view'] == 'Portfolio':
     render_page_header("Portfolio", "What companies am I responsible for?", eyebrow="Portfolio")
