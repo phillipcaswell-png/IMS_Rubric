@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import time
 from datetime import datetime
 from services import (
     init_db,
@@ -39,6 +40,34 @@ from services import (
     record_decision,
     save_thesis_review,
 )
+
+try:
+    from instrumentation import (
+        export_events_json,
+        get_event_count,
+        observe_exception,
+        observe_export,
+        observe_ui_navigation,
+        observe_view_model,
+    )
+except Exception:
+    def export_events_json(indent=2):
+        return "{}"
+
+    def get_event_count():
+        return 0
+
+    def observe_export(*args, **kwargs):
+        return False
+
+    def observe_exception(*args, **kwargs):
+        return False
+
+    def observe_ui_navigation(*args, **kwargs):
+        return False
+
+    def observe_view_model(*args, **kwargs):
+        return False
 
 # =============================================================================
 # IMS CONTROLLED VOCABULARY
@@ -1284,13 +1313,34 @@ def render_thesis_overview(vm):
     st.divider()
     section_header("JSON Export")
     st.json(vm["json_export"]["payload"])
-    st.download_button(
+    json_download_clicked = st.download_button(
         label="Download Athena Evaluation JSON",
         data=vm["json_export"]["json_string"],
         file_name=f"ims_thesis_{vm['header']['company_name']}.json",
         mime="application/json",
         key="json_download",
     )
+    if json_download_clicked:
+        observe_export(
+            export_type="thesis_json",
+            trigger="download_button",
+            record_count=len(vm["json_export"].get("payload", {})),
+        )
+
+    instrumentation_json = export_events_json()
+    telemetry_download_clicked = st.download_button(
+        label="Download Instrumentation Telemetry JSON",
+        data=instrumentation_json,
+        file_name=f"ims_instrumentation_{vm['header']['company_name']}.json",
+        mime="application/json",
+        key="instrumentation_json_download",
+    )
+    if telemetry_download_clicked:
+        observe_export(
+            export_type="instrumentation_json",
+            trigger="download_button",
+            record_count=get_event_count(),
+        )
 
 
 # Initialize database on app start
@@ -1320,6 +1370,21 @@ if 'selected_thesis_id' not in st.session_state:
     st.session_state['selected_thesis_id'] = None
 if 'selected_evidence_id' not in st.session_state:
     st.session_state['selected_evidence_id'] = None
+
+
+def _capture_navigation_event():
+    """Capture view transitions passively without affecting navigation logic."""
+    current_view = st.session_state.get("current_view", "Dashboard")
+    previous_view = st.session_state.get("_instrument_previous_view")
+    thesis_id = st.session_state.get("selected_thesis_id")
+
+    if previous_view != current_view:
+        observe_ui_navigation(
+            current_view=current_view,
+            previous_view=previous_view,
+            thesis_id=thesis_id,
+        )
+        st.session_state["_instrument_previous_view"] = current_view
 
 
 def _render_sidebar_styles():
@@ -1541,6 +1606,8 @@ with st.sidebar:
     render_sidebar_portfolio(theses_df)
     st.divider()
     render_sidebar_actions()
+
+_capture_navigation_event()
 
 # Main content area
 if st.session_state['current_view'] == 'Dashboard':
@@ -2140,7 +2207,37 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         )
         
         with tab1:
-            thesis_overview_vm = build_thesis_overview_vm(int(thesis_id))
+            vm_started = time.perf_counter()
+            observe_view_model(
+                view_model_name="thesis_overview_vm",
+                phase="entry",
+                thesis_id=int(thesis_id),
+            )
+            try:
+                thesis_overview_vm = build_thesis_overview_vm(int(thesis_id))
+                vm_duration_ms = round((time.perf_counter() - vm_started) * 1000.0, 3)
+                observe_view_model(
+                    view_model_name="thesis_overview_vm",
+                    phase="exit",
+                    thesis_id=int(thesis_id),
+                    duration_ms=vm_duration_ms,
+                    status="success",
+                )
+            except Exception as exc:
+                observe_exception(
+                    operation="thesis_overview_view_model",
+                    exception=exc,
+                    metadata={"thesis_id": int(thesis_id)},
+                )
+                vm_duration_ms = round((time.perf_counter() - vm_started) * 1000.0, 3)
+                observe_view_model(
+                    view_model_name="thesis_overview_vm",
+                    phase="exit",
+                    thesis_id=int(thesis_id),
+                    duration_ms=vm_duration_ms,
+                    status="failure",
+                )
+                raise
             render_thesis_overview(thesis_overview_vm)
         
         with tab2:

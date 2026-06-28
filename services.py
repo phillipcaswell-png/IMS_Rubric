@@ -2,6 +2,7 @@ import sqlite3
 import uuid
 import os
 import json
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -11,6 +12,18 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
+try:
+    from instrumentation import observe_audit_occurrence, observe_exception, observe_service_call
+except Exception:
+    def observe_audit_occurrence(*args, **kwargs):
+        return False
+
+    def observe_exception(*args, **kwargs):
+        return False
+
+    def observe_service_call(*args, **kwargs):
+        return False
 
 
 # =============================================================================
@@ -473,40 +486,73 @@ def create_thesis(
     evidence_cutoff_date,
 ):
     """Create thesis record and log creation event."""
-    thesis_id = insert_query(
-        """
-        INSERT INTO theses
-        (company_name, ticker, decision_question, account_type, portfolio_role,
-         primary_horizon, regime_state, reviewer, status, drl, validation_mode,
-         evidence_cutoff_date, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            company_name.strip(),
-            ticker.strip() if ticker else None,
-            decision_question.strip(),
-            account_type if account_type else None,
-            portfolio_role if portfolio_role else None,
-            primary_horizon if primary_horizon else None,
-            regime_state.strip() if regime_state else None,
-            reviewer.strip() if reviewer else None,
-            status if status else None,
-            int(drl) if drl else None,
-            1 if validation_mode_enabled else 0,
-            evidence_cutoff_date.isoformat() if validation_mode_enabled and evidence_cutoff_date else None,
-            datetime.now().isoformat(),
-        ),
+    started_at = time.perf_counter()
+    observe_service_call(
+        service_name="create_thesis",
+        phase="entry",
+        context={
+            "has_ticker": bool(ticker),
+            "validation_mode_enabled": bool(validation_mode_enabled),
+        },
     )
+    try:
+        thesis_id = insert_query(
+            """
+            INSERT INTO theses
+            (company_name, ticker, decision_question, account_type, portfolio_role,
+             primary_horizon, regime_state, reviewer, status, drl, validation_mode,
+             evidence_cutoff_date, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                company_name.strip(),
+                ticker.strip() if ticker else None,
+                decision_question.strip(),
+                account_type if account_type else None,
+                portfolio_role if portfolio_role else None,
+                primary_horizon if primary_horizon else None,
+                regime_state.strip() if regime_state else None,
+                reviewer.strip() if reviewer else None,
+                status if status else None,
+                int(drl) if drl else None,
+                1 if validation_mode_enabled else 0,
+                evidence_cutoff_date.isoformat() if validation_mode_enabled and evidence_cutoff_date else None,
+                datetime.now().isoformat(),
+            ),
+        )
 
-    event_created_by = reviewer.strip() if reviewer else "System"
-    log_event(
-        thesis_id=thesis_id,
-        event_type=EVENT_EVALUATION_CREATED,
-        description="Initial thesis created.",
-        created_by=event_created_by,
-        version="1.0",
-    )
-    return thesis_id
+        event_created_by = reviewer.strip() if reviewer else "System"
+        log_event(
+            thesis_id=thesis_id,
+            event_type=EVENT_EVALUATION_CREATED,
+            description="Initial thesis created.",
+            created_by=event_created_by,
+            version="1.0",
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="create_thesis",
+            phase="exit",
+            status="success",
+            duration_ms=duration_ms,
+            context={"thesis_id": thesis_id},
+        )
+        return thesis_id
+    except Exception as exc:
+        observe_exception(
+            operation="create_thesis",
+            exception=exc,
+            metadata={"thesis_id": None},
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="create_thesis",
+            phase="exit",
+            status="failure",
+            duration_ms=duration_ms,
+            context={"error_type": type(exc).__name__},
+        )
+        raise
 
 
 def get_overview_metrics(thesis_id):
@@ -545,50 +591,81 @@ def get_overview_metrics(thesis_id):
 
 def build_thesis_json(thesis_id):
     """Build a comprehensive JSON export of a thesis with all related data."""
-    thesis_df = fetch_dataframe(
-        "SELECT * FROM theses WHERE id = ?",
-        (thesis_id,),
+    started_at = time.perf_counter()
+    observe_service_call(
+        service_name="build_thesis_json",
+        phase="entry",
+        context={"thesis_id": thesis_id},
     )
-    thesis_dict = thesis_df.iloc[0].to_dict() if not thesis_df.empty else {}
+    try:
+        thesis_df = fetch_dataframe(
+            "SELECT * FROM theses WHERE id = ?",
+            (thesis_id,),
+        )
+        thesis_dict = thesis_df.iloc[0].to_dict() if not thesis_df.empty else {}
 
-    evidence_df = fetch_dataframe(
-        "SELECT * FROM evidence_items WHERE thesis_id = ? ORDER BY created_at DESC",
-        (thesis_id,),
-    )
-    evidence_list = evidence_df.to_dict("records")
+        evidence_df = fetch_dataframe(
+            "SELECT * FROM evidence_items WHERE thesis_id = ? ORDER BY created_at DESC",
+            (thesis_id,),
+        )
+        evidence_list = evidence_df.to_dict("records")
 
-    business_df = fetch_dataframe(
-        "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id LIKE 'B%' ORDER BY pillar_id",
-        (thesis_id,),
-    )
-    business_list = business_df.to_dict("records")
+        business_df = fetch_dataframe(
+            "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id LIKE 'B%' ORDER BY pillar_id",
+            (thesis_id,),
+        )
+        business_list = business_df.to_dict("records")
 
-    investment_df = fetch_dataframe(
-        "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id LIKE 'I%' ORDER BY pillar_id",
-        (thesis_id,),
-    )
-    investment_list = investment_df.to_dict("records")
+        investment_df = fetch_dataframe(
+            "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id LIKE 'I%' ORDER BY pillar_id",
+            (thesis_id,),
+        )
+        investment_list = investment_df.to_dict("records")
 
-    decision_df = fetch_dataframe(
-        "SELECT * FROM decision_logs WHERE thesis_id = ?",
-        (thesis_id,),
-    )
-    decision_dict = decision_df.iloc[0].to_dict() if not decision_df.empty else {}
+        decision_df = fetch_dataframe(
+            "SELECT * FROM decision_logs WHERE thesis_id = ?",
+            (thesis_id,),
+        )
+        decision_dict = decision_df.iloc[0].to_dict() if not decision_df.empty else {}
 
-    events_df = fetch_dataframe(
-        "SELECT * FROM thesis_events WHERE thesis_id = ? ORDER BY created_at DESC",
-        (thesis_id,),
-    )
-    events_list = events_df.to_dict("records")
+        events_df = fetch_dataframe(
+            "SELECT * FROM thesis_events WHERE thesis_id = ? ORDER BY created_at DESC",
+            (thesis_id,),
+        )
+        events_list = events_df.to_dict("records")
 
-    return {
-        "thesis": thesis_dict,
-        "evidence_items": evidence_list,
-        "business_assessments": business_list,
-        "investment_assessments": investment_list,
-        "decision_log": decision_dict,
-        "audit_trail": events_list,
-    }
+        result = {
+            "thesis": thesis_dict,
+            "evidence_items": evidence_list,
+            "business_assessments": business_list,
+            "investment_assessments": investment_list,
+            "decision_log": decision_dict,
+            "audit_trail": events_list,
+        }
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="build_thesis_json",
+            phase="exit",
+            status="success",
+            duration_ms=duration_ms,
+            context={"thesis_id": thesis_id, "event_count": len(events_list)},
+        )
+        return result
+    except Exception as exc:
+        observe_exception(
+            operation="build_thesis_json",
+            exception=exc,
+            metadata={"thesis_id": thesis_id},
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="build_thesis_json",
+            phase="exit",
+            status="failure",
+            duration_ms=duration_ms,
+            context={"thesis_id": thesis_id, "error_type": type(exc).__name__},
+        )
+        raise
 
 
 # =============================================================================
@@ -613,63 +690,92 @@ def stage_evidence(
     intake_created_by,
 ):
     """Insert staged evidence and log staging event."""
-    staging_uuid = str(uuid.uuid4())
-
-    insert_query(
-        """
-        INSERT INTO evidence_staging
-        (
-            staging_uuid,
-            thesis_id,
-            source_type,
-            source_name,
-            source_url,
-            publication_date,
-            retrieval_date,
-            author_publisher,
-            evidence_summary,
-            key_takeaway,
-            preliminary_grade,
-            source_quality_notes,
-            duplicate_flag,
-            duplicate_notes,
-            intake_status,
-            created_by,
-            created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            staging_uuid,
-            int(intake_thesis_id) if intake_thesis_id is not None else None,
-            intake_source_type if intake_source_type else None,
-            intake_source_name.strip() if intake_source_name else None,
-            intake_source_url.strip() if intake_source_url else None,
-            intake_publication_date.isoformat() if intake_publication_date else None,
-            intake_retrieval_date.isoformat() if intake_retrieval_date else None,
-            intake_author_publisher.strip() if intake_author_publisher else None,
-            intake_evidence_summary.strip() if intake_evidence_summary else None,
-            intake_key_takeaway.strip() if intake_key_takeaway else None,
-            intake_preliminary_grade if intake_preliminary_grade else None,
-            intake_source_quality_notes.strip() if intake_source_quality_notes else None,
-            1 if intake_duplicate_flag else 0,
-            intake_duplicate_notes.strip() if intake_duplicate_notes else None,
-            INTAKE_STATUS_PENDING,
-            intake_created_by.strip() if intake_created_by else "System",
-            datetime.now().isoformat(),
-        ),
+    started_at = time.perf_counter()
+    observe_service_call(
+        service_name="stage_evidence",
+        phase="entry",
+        context={"thesis_id": intake_thesis_id, "has_url": bool(intake_source_url)},
     )
-
-    if intake_thesis_id is not None:
-        log_event(
-            thesis_id=int(intake_thesis_id),
-            event_type=EVENT_EVIDENCE_STAGED,
-            description=f"Evidence staged: staging_uuid={staging_uuid}",
-            created_by=intake_created_by.strip() if intake_created_by else "System",
-            version="1.0",
+    staging_uuid = str(uuid.uuid4())
+    try:
+        insert_query(
+            """
+            INSERT INTO evidence_staging
+            (
+                staging_uuid,
+                thesis_id,
+                source_type,
+                source_name,
+                source_url,
+                publication_date,
+                retrieval_date,
+                author_publisher,
+                evidence_summary,
+                key_takeaway,
+                preliminary_grade,
+                source_quality_notes,
+                duplicate_flag,
+                duplicate_notes,
+                intake_status,
+                created_by,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                staging_uuid,
+                int(intake_thesis_id) if intake_thesis_id is not None else None,
+                intake_source_type if intake_source_type else None,
+                intake_source_name.strip() if intake_source_name else None,
+                intake_source_url.strip() if intake_source_url else None,
+                intake_publication_date.isoformat() if intake_publication_date else None,
+                intake_retrieval_date.isoformat() if intake_retrieval_date else None,
+                intake_author_publisher.strip() if intake_author_publisher else None,
+                intake_evidence_summary.strip() if intake_evidence_summary else None,
+                intake_key_takeaway.strip() if intake_key_takeaway else None,
+                intake_preliminary_grade if intake_preliminary_grade else None,
+                intake_source_quality_notes.strip() if intake_source_quality_notes else None,
+                1 if intake_duplicate_flag else 0,
+                intake_duplicate_notes.strip() if intake_duplicate_notes else None,
+                INTAKE_STATUS_PENDING,
+                intake_created_by.strip() if intake_created_by else "System",
+                datetime.now().isoformat(),
+            ),
         )
 
-    return staging_uuid
+        if intake_thesis_id is not None:
+            log_event(
+                thesis_id=int(intake_thesis_id),
+                event_type=EVENT_EVIDENCE_STAGED,
+                description=f"Evidence staged: staging_uuid={staging_uuid}",
+                created_by=intake_created_by.strip() if intake_created_by else "System",
+                version="1.0",
+            )
+
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="stage_evidence",
+            phase="exit",
+            status="success",
+            duration_ms=duration_ms,
+            context={"thesis_id": intake_thesis_id, "staging_uuid": staging_uuid},
+        )
+        return staging_uuid
+    except Exception as exc:
+        observe_exception(
+            operation="stage_evidence",
+            exception=exc,
+            metadata={"thesis_id": intake_thesis_id},
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="stage_evidence",
+            phase="exit",
+            status="failure",
+            duration_ms=duration_ms,
+            context={"thesis_id": intake_thesis_id, "error_type": type(exc).__name__},
+        )
+        raise
 
 
 def update_staged_evidence_source_text(staging_uuid, source_text):
@@ -1989,57 +2095,92 @@ def save_pillar_score(
 
 def validate_decision_gate(thesis_id):
     """Validate constitutional completion for decision eligibility."""
-    required_pillars = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "I1", "I2", "I3", "I4"]
-    pillar_df = fetch_dataframe(
-        """
-        SELECT pillar_id, score, judgment, confidence_basis, falsification_trigger
-        FROM pillar_scores
-        WHERE thesis_id = ? AND pillar_id IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (thesis_id, *required_pillars),
+    started_at = time.perf_counter()
+    observe_service_call(
+        service_name="validate_decision_gate",
+        phase="entry",
+        context={"thesis_id": thesis_id},
     )
+    required_pillars = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "I1", "I2", "I3", "I4"]
+    try:
+        pillar_df = fetch_dataframe(
+            """
+            SELECT pillar_id, score, judgment, confidence_basis, falsification_trigger
+            FROM pillar_scores
+            WHERE thesis_id = ? AND pillar_id IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (thesis_id, *required_pillars),
+        )
 
-    by_pillar = {}
-    if not pillar_df.empty:
-        for _, row in pillar_df.iterrows():
-            pid = str(row["pillar_id"]).strip()
-            if pid not in by_pillar:
-                by_pillar[pid] = row
+        by_pillar = {}
+        if not pillar_df.empty:
+            for _, row in pillar_df.iterrows():
+                pid = str(row["pillar_id"]).strip()
+                if pid not in by_pillar:
+                    by_pillar[pid] = row
 
-    missing = []
-    completed = 0
+        missing = []
+        completed = 0
 
-    for pillar_id in required_pillars:
-        row = by_pillar.get(pillar_id)
-        pillar_missing = False
+        for pillar_id in required_pillars:
+            row = by_pillar.get(pillar_id)
+            pillar_missing = False
 
-        if row is None or pd.isna(row["score"]):
-            missing.append({"pillar_id": pillar_id, "field": "score", "label": "Score"})
-            pillar_missing = True
+            if row is None or pd.isna(row["score"]):
+                missing.append({"pillar_id": pillar_id, "field": "score", "label": "Score"})
+                pillar_missing = True
 
-        if row is None or pd.isna(row["judgment"]) or not str(row["judgment"]).strip():
-            missing.append({"pillar_id": pillar_id, "field": "judgment", "label": "Judgment"})
-            pillar_missing = True
+            if row is None or pd.isna(row["judgment"]) or not str(row["judgment"]).strip():
+                missing.append({"pillar_id": pillar_id, "field": "judgment", "label": "Judgment"})
+                pillar_missing = True
 
-        if row is None or pd.isna(row["confidence_basis"]) or not str(row["confidence_basis"]).strip():
-            missing.append({"pillar_id": pillar_id, "field": "confidence_basis", "label": "Confidence Basis"})
-            pillar_missing = True
+            if row is None or pd.isna(row["confidence_basis"]) or not str(row["confidence_basis"]).strip():
+                missing.append({"pillar_id": pillar_id, "field": "confidence_basis", "label": "Confidence Basis"})
+                pillar_missing = True
 
-        if row is None or pd.isna(row["falsification_trigger"]) or not str(row["falsification_trigger"]).strip():
-            missing.append({"pillar_id": pillar_id, "field": "falsification_trigger", "label": "Falsification Trigger"})
-            pillar_missing = True
+            if row is None or pd.isna(row["falsification_trigger"]) or not str(row["falsification_trigger"]).strip():
+                missing.append({"pillar_id": pillar_id, "field": "falsification_trigger", "label": "Falsification Trigger"})
+                pillar_missing = True
 
-        if not pillar_missing:
-            completed += 1
+            if not pillar_missing:
+                completed += 1
 
-    return {
-        "eligible": len(missing) == 0,
-        "completed": completed,
-        "required": 11,
-        "missing": missing,
-        "red_conditions": [],
-        "validated_at": datetime.now().isoformat(),
-    }
+        result = {
+            "eligible": len(missing) == 0,
+            "completed": completed,
+            "required": 11,
+            "missing": missing,
+            "red_conditions": [],
+            "validated_at": datetime.now().isoformat(),
+        }
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="validate_decision_gate",
+            phase="exit",
+            status="success",
+            duration_ms=duration_ms,
+            context={
+                "thesis_id": thesis_id,
+                "eligible": result["eligible"],
+                "missing_count": len(result["missing"]),
+            },
+        )
+        return result
+    except Exception as exc:
+        observe_exception(
+            operation="validate_decision_gate",
+            exception=exc,
+            metadata={"thesis_id": thesis_id},
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="validate_decision_gate",
+            phase="exit",
+            status="failure",
+            duration_ms=duration_ms,
+            context={"thesis_id": thesis_id, "error_type": type(exc).__name__},
+        )
+        raise
 
 
 def is_validation_configuration_locked(thesis_id):
@@ -2067,56 +2208,86 @@ def record_decision(
     created_by,
 ):
     """Insert or update decision_logs row and emit decision event."""
-    if existing_decision is not None:
-        run_query(
-            """
-            UPDATE decision_logs
-            SET recommendation = ?, horizon_map = ?, action = ?,
-                review_date = ?, decision_rationale = ?, key_risks = ?,
-                falsification_summary = ?, next_review_date = ?
-            WHERE thesis_id = ?
-            """,
-            (
-                recommendation if recommendation else None,
-                horizon_map.strip() if horizon_map else None,
-                action.strip() if action else None,
-                review_date.isoformat() if review_date else None,
-                decision_rationale.strip() if decision_rationale else None,
-                key_risks.strip() if key_risks else None,
-                falsification_summary.strip() if falsification_summary else None,
-                next_review_date.isoformat() if next_review_date else None,
-                thesis_id,
-            ),
-        )
-    else:
-        insert_query(
-            """
-            INSERT INTO decision_logs
-            (thesis_id, recommendation, horizon_map, action, review_date,
-             decision_rationale, key_risks, falsification_summary, next_review_date, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                thesis_id,
-                recommendation if recommendation else None,
-                horizon_map.strip() if horizon_map else None,
-                action.strip() if action else None,
-                review_date.isoformat() if review_date else None,
-                decision_rationale.strip() if decision_rationale else None,
-                key_risks.strip() if key_risks else None,
-                falsification_summary.strip() if falsification_summary else None,
-                next_review_date.isoformat() if next_review_date else None,
-                datetime.now().isoformat(),
-            ),
-        )
-
-    log_event(
-        thesis_id=thesis_id,
-        event_type=EVENT_DECISION_RECORDED,
-        description=f"Decision recorded or updated. validated_at={validated_at}",
-        created_by=created_by,
-        version="1.0",
+    started_at = time.perf_counter()
+    observe_service_call(
+        service_name="record_decision",
+        phase="entry",
+        context={"thesis_id": thesis_id, "is_update": existing_decision is not None},
     )
+    try:
+        if existing_decision is not None:
+            run_query(
+                """
+                UPDATE decision_logs
+                SET recommendation = ?, horizon_map = ?, action = ?,
+                    review_date = ?, decision_rationale = ?, key_risks = ?,
+                    falsification_summary = ?, next_review_date = ?
+                WHERE thesis_id = ?
+                """,
+                (
+                    recommendation if recommendation else None,
+                    horizon_map.strip() if horizon_map else None,
+                    action.strip() if action else None,
+                    review_date.isoformat() if review_date else None,
+                    decision_rationale.strip() if decision_rationale else None,
+                    key_risks.strip() if key_risks else None,
+                    falsification_summary.strip() if falsification_summary else None,
+                    next_review_date.isoformat() if next_review_date else None,
+                    thesis_id,
+                ),
+            )
+        else:
+            insert_query(
+                """
+                INSERT INTO decision_logs
+                (thesis_id, recommendation, horizon_map, action, review_date,
+                 decision_rationale, key_risks, falsification_summary, next_review_date, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    thesis_id,
+                    recommendation if recommendation else None,
+                    horizon_map.strip() if horizon_map else None,
+                    action.strip() if action else None,
+                    review_date.isoformat() if review_date else None,
+                    decision_rationale.strip() if decision_rationale else None,
+                    key_risks.strip() if key_risks else None,
+                    falsification_summary.strip() if falsification_summary else None,
+                    next_review_date.isoformat() if next_review_date else None,
+                    datetime.now().isoformat(),
+                ),
+            )
+
+        log_event(
+            thesis_id=thesis_id,
+            event_type=EVENT_DECISION_RECORDED,
+            description=f"Decision recorded or updated. validated_at={validated_at}",
+            created_by=created_by,
+            version="1.0",
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="record_decision",
+            phase="exit",
+            status="success",
+            duration_ms=duration_ms,
+            context={"thesis_id": thesis_id, "is_update": existing_decision is not None},
+        )
+    except Exception as exc:
+        observe_exception(
+            operation="record_decision",
+            exception=exc,
+            metadata={"thesis_id": thesis_id},
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
+        observe_service_call(
+            service_name="record_decision",
+            phase="exit",
+            status="failure",
+            duration_ms=duration_ms,
+            context={"thesis_id": thesis_id, "error_type": type(exc).__name__},
+        )
+        raise
 
 
 # =============================================================================
@@ -2902,4 +3073,11 @@ def log_event(
             datetime.now().isoformat(),
             version,
         ),
+    )
+
+    observe_audit_occurrence(
+        event_type=event_type,
+        thesis_id=thesis_id,
+        created_by=created_by,
+        version=version,
     )
