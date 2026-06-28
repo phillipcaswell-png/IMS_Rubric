@@ -8,6 +8,9 @@ from workflow_assistant import (
     normalize_promotion_candidates,
     build_rationale_draft,
     build_decision_prep_summary,
+    derive_workflow_ownership_state,
+    prioritize_active_evaluation_rows,
+    resolve_active_evaluation_identity,
 )
 from services import (
     init_db,
@@ -580,6 +583,86 @@ def render_preparation_status(status_obj):
         lines.append("Preparation Failed")
 
     status_renderer("\n\n".join(lines))
+
+
+def _load_json_list_field(raw_value):
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, list):
+        return raw_value
+    text = str(raw_value).strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _fetch_latest_preparation_status_by_thesis():
+    latest_prep_df = fetch_dataframe(
+        """
+        SELECT ep.*
+        FROM evaluation_preparations ep
+        JOIN (
+            SELECT thesis_id, MAX(id) AS max_id
+            FROM evaluation_preparations
+            WHERE thesis_id IS NOT NULL
+            GROUP BY thesis_id
+        ) latest ON latest.max_id = ep.id
+        """
+    )
+
+    by_thesis_id = {}
+    if latest_prep_df.empty:
+        return by_thesis_id
+
+    for _, row in latest_prep_df.iterrows():
+        if pd.isna(row.get("thesis_id")):
+            continue
+        thesis_id = int(row["thesis_id"])
+        by_thesis_id[thesis_id] = {
+            "thesis_id": thesis_id,
+            "preparation_id": int(row["id"]),
+            "ticker": str(row.get("ticker", "")).strip(),
+            "observation_date": str(row.get("observation_date", "")).strip(),
+            "lifecycle_state": str(row.get("lifecycle_state", "preparing")).strip(),
+            "workspace_ready": bool(int(row.get("workspace_ready") or 0)),
+            "readiness_status": str(row.get("readiness_status", "pending")).strip(),
+            "evidence_discovery_status": str(row.get("evidence_discovery_status", "pending")).strip(),
+            "candidate_count": int(row.get("candidate_count") or 0),
+            "discovery_warnings": _load_json_list_field(row.get("discovery_warnings_json")),
+            "acquisition_status": str(row.get("evidence_acquisition_status", "pending")).strip(),
+            "acquired_document_count": int(row.get("acquired_document_count") or 0),
+            "acquisition_warnings": _load_json_list_field(row.get("acquisition_warnings_json")),
+            "extraction_status": str(row.get("extraction_status", "pending")).strip(),
+            "extracted_observation_count": int(row.get("extracted_observation_count") or 0),
+            "extraction_timestamp": str(row.get("extraction_timestamp", "")).strip(),
+            "extraction_warnings": _load_json_list_field(row.get("extraction_warnings_json")),
+            "warnings": _load_json_list_field(row.get("warnings_json")),
+            "errors": _load_json_list_field(row.get("errors_json")),
+        }
+
+    return by_thesis_id
+
+
+def _resolve_active_evaluation_thesis_id(theses_df, latest_prep_by_thesis_id):
+    resolution = resolve_active_evaluation_identity(
+        current_active_thesis_id=st.session_state.get("active_evaluation_thesis_id"),
+        available_thesis_ids=theses_df["id"].tolist() if "id" in theses_df else [],
+        active_request=st.session_state.get("active_evaluation_request"),
+        latest_preparation_by_thesis=latest_prep_by_thesis_id,
+        engine_preparation_status=st.session_state.get("engine_preparation_status"),
+    )
+
+    active_thesis_id = resolution.get("active_thesis_id")
+    if active_thesis_id is not None:
+        st.session_state["active_evaluation_thesis_id"] = int(active_thesis_id)
+        return int(active_thesis_id)
+
+    st.session_state["active_evaluation_thesis_id"] = None
+    return None
 
 
 def render_card_header(title, subtitle=None):
@@ -2249,6 +2332,12 @@ if 'selected_evidence_id' not in st.session_state:
     st.session_state['selected_evidence_id'] = None
 if 'engine_preparation_status' not in st.session_state:
     st.session_state['engine_preparation_status'] = None
+if 'active_evaluation_thesis_id' not in st.session_state:
+    st.session_state['active_evaluation_thesis_id'] = None
+if 'active_evaluation_request' not in st.session_state:
+    st.session_state['active_evaluation_request'] = None
+if 'pending_prepare_request' not in st.session_state:
+    st.session_state['pending_prepare_request'] = None
 
 
 def _capture_navigation_event():
@@ -2551,6 +2640,15 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
     for _, thesis_row in theses_df.iterrows():
         tid = int(thesis_row["id"])
         gate_results_by_thesis_id[tid] = validate_decision_gate(tid)
+
+    latest_prep_by_thesis_id = _fetch_latest_preparation_status_by_thesis()
+    latest_engine_status = st.session_state.get("engine_preparation_status")
+    if isinstance(latest_engine_status, dict) and latest_engine_status.get("thesis_id") is not None:
+        latest_prep_by_thesis_id[int(latest_engine_status["thesis_id"])] = latest_engine_status
+
+    readiness_by_thesis_id = {}
+    for thesis_id, prep_status in latest_prep_by_thesis_id.items():
+        readiness_by_thesis_id[int(thesis_id)] = str(prep_status.get("readiness_status", "pending")).strip()
 
     today_date = datetime.now().date()
 
@@ -2857,12 +2955,47 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
     st.markdown("Prepare. Review. Decide.")
 
     section_header("Continue Working")
+    active_evaluation_thesis_id = _resolve_active_evaluation_thesis_id(theses_df, latest_prep_by_thesis_id)
+    active_evaluation_request = st.session_state.get("active_evaluation_request")
+    active_resolution = resolve_active_evaluation_identity(
+        current_active_thesis_id=active_evaluation_thesis_id,
+        available_thesis_ids=theses_df["id"].tolist() if "id" in theses_df else [],
+        active_request=active_evaluation_request,
+        latest_preparation_by_thesis=latest_prep_by_thesis_id,
+        engine_preparation_status=st.session_state.get("engine_preparation_status"),
+    )
+
+    if active_resolution.get("pending_request") and isinstance(active_evaluation_request, dict):
+        pending_ticker = str(active_evaluation_request.get("ticker", "")).strip().upper()
+        pending_company = str(active_evaluation_request.get("company_name", "")).strip() or pending_ticker or "Submitted Evaluation"
+        pending_title = pending_company if not pending_ticker else f"{pending_company} ({pending_ticker})"
+        card_col, action_col = st.columns([5, 1])
+        with card_col:
+            st.markdown(
+                "**Active Evaluation**  \n"
+                f"**{pending_title}**  \n"
+                "Current lifecycle stage: Preparation  \n"
+                "Workflow status: Preparing  \n"
+                "Recommendation status: No Decision  \n"
+                "Progress: 0 / 11  \n"
+                "Next action: Athena is preparing this evaluation."
+            )
+        with action_col:
+            st.button("Preparing", key="home_continue_pending_active", use_container_width=True, disabled=True)
+
     continue_rows = watchlist_rows_sorted if watchlist_rows_sorted else sorted(portfolio_rows, key=lambda row: row["Company"])
+    continue_rows = prioritize_active_evaluation_rows(continue_rows, active_evaluation_thesis_id)
     if not continue_rows:
         empty_state("No active evaluations. Start a new evaluation below.")
     else:
         for idx, row in enumerate(continue_rows[:5]):
             thesis_id = int(row["thesis_id"])
+            is_active = active_evaluation_thesis_id is not None and int(active_evaluation_thesis_id) == thesis_id
+            prep_status = latest_prep_by_thesis_id.get(thesis_id, {})
+            workflow_state = derive_workflow_ownership_state(prep_status)
+            workflow_status = str(workflow_state.get("status", "Preparing")).strip()
+            workflow_reason = str(workflow_state.get("reason", "")).strip()
+
             gate = gate_results_by_thesis_id.get(thesis_id, {"completed": 0, "required": 11, "eligible": False})
             latest_decision_row = latest_decision_by_thesis_id.get(thesis_id)
             recommendation_status = "No Decision"
@@ -2874,20 +3007,53 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
             elif int(gate.get("completed", 0)) == 0:
                 lifecycle_stage = "Preparation"
 
+            next_action_text = row.get("Action Required", "Continue assessment")
+            if is_active:
+                if workflow_status == "Preparing":
+                    next_action_text = "Athena is preparing this evaluation."
+                elif workflow_status == "Ready":
+                    next_action_text = "Continue Evaluation"
+                elif workflow_status == "Failed":
+                    next_action_text = "Review failure and retry preparation."
+
             card_col, action_col = st.columns([5, 1])
             with card_col:
+                active_marker = "**Active Evaluation**  \n" if is_active else ""
                 st.markdown(
+                    active_marker +
                     f"**{row['Company']}**  \n"
                     f"Current lifecycle stage: {lifecycle_stage}  \n"
+                    f"Workflow status: {workflow_status if is_active else '—'}  \n"
                     f"Recommendation status: {recommendation_status}  \n"
                     f"Progress: {gate.get('completed', 0)} / {gate.get('required', 11)}  \n"
-                    f"Next action: {row.get('Action Required', 'Continue assessment')}"
+                    f"Next action: {next_action_text}"
                 )
+                if is_active and workflow_status == "Failed" and workflow_reason:
+                    st.caption(f"Failure reason: {workflow_reason}")
             with action_col:
-                if st.button("Continue", key=f"home_continue_{idx}_{thesis_id}", use_container_width=True):
+                action_label = "Continue Evaluation" if is_active else "Continue"
+                if st.button(action_label, key=f"home_continue_{idx}_{thesis_id}", use_container_width=True):
                     st.session_state["selected_thesis_id"] = thesis_id
                     st.session_state["current_view"] = "Workspace"
                     st.rerun()
+
+            if is_active and workflow_status == "Failed":
+                retry_col, _ = st.columns([1, 5])
+                with retry_col:
+                    if st.button("Retry Preparation", key=f"home_retry_{thesis_id}", use_container_width=True):
+                        retry_status = prepare_evaluation(
+                            ticker=prep_status.get("ticker", row.get("Ticker", "")),
+                            observation_date=prep_status.get("observation_date", datetime.now().date()),
+                            company_name=row.get("Company", ""),
+                            reviewer="Operational Evaluation Engine",
+                        )
+                        st.session_state["engine_preparation_status"] = retry_status
+                        retry_thesis_id = retry_status.get("thesis_id")
+                        if retry_thesis_id is not None:
+                            st.session_state["active_evaluation_thesis_id"] = int(retry_thesis_id)
+                            st.session_state["selected_thesis_id"] = int(retry_thesis_id)
+                        st.session_state["current_view"] = "Home"
+                        st.rerun()
 
     st.divider()
     section_header("Start New Evaluation")
@@ -2913,19 +3079,41 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
             if not ticker.strip():
                 st.error("Ticker is required.")
             else:
-                preparation_status = prepare_evaluation(
-                    ticker=ticker,
-                    observation_date=observation_date,
-                    company_name=company_name,
-                    reviewer=reviewer,
-                )
-                st.session_state['engine_preparation_status'] = preparation_status
-                thesis_id = preparation_status.get("thesis_id")
-                readiness_status = preparation_status.get("readiness_status")
-                if thesis_id is not None and readiness_status in ["ready_for_analyst", "partial"]:
-                    st.session_state["selected_thesis_id"] = int(thesis_id)
-                    st.session_state["current_view"] = "Workspace"
-                render_preparation_status(preparation_status)
+                pending_ticker = ticker.strip().upper()
+                st.session_state["active_evaluation_request"] = {
+                    "ticker": pending_ticker,
+                    "observation_date": observation_date.isoformat(),
+                    "company_name": company_name.strip() if company_name else "",
+                    "reviewer": reviewer.strip() if reviewer else "",
+                }
+                st.session_state["active_evaluation_thesis_id"] = None
+                st.session_state["engine_preparation_status"] = None
+                st.session_state["pending_prepare_request"] = {
+                    "ticker": pending_ticker,
+                    "observation_date": observation_date,
+                    "company_name": company_name,
+                    "reviewer": reviewer,
+                }
+                st.session_state["current_view"] = "Home"
+                st.rerun()
+
+    pending_prepare_request = st.session_state.get("pending_prepare_request")
+    if isinstance(pending_prepare_request, dict):
+        with st.status("Preparing evaluation...", expanded=False):
+            preparation_status = prepare_evaluation(
+                ticker=pending_prepare_request.get("ticker", ""),
+                observation_date=pending_prepare_request.get("observation_date", datetime.now().date()),
+                company_name=pending_prepare_request.get("company_name", ""),
+                reviewer=pending_prepare_request.get("reviewer", ""),
+            )
+        st.session_state["engine_preparation_status"] = preparation_status
+        thesis_id = preparation_status.get("thesis_id")
+        if thesis_id is not None:
+            st.session_state["active_evaluation_thesis_id"] = int(thesis_id)
+            st.session_state["selected_thesis_id"] = int(thesis_id)
+        st.session_state["pending_prepare_request"] = None
+        st.session_state["current_view"] = "Home"
+        st.rerun()
 
     st.divider()
     section_header("Workflow Inbox")
@@ -2965,22 +3153,6 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
 
     st.divider()
     section_header("Portfolio Summary")
-    latest_prep_df = fetch_dataframe(
-        """
-        SELECT ep.thesis_id, ep.readiness_status
-        FROM evaluation_preparations ep
-        JOIN (
-            SELECT thesis_id, MAX(id) AS max_id
-            FROM evaluation_preparations
-            GROUP BY thesis_id
-        ) latest ON latest.max_id = ep.id
-        """
-    )
-    readiness_by_thesis_id = {
-        int(row["thesis_id"]): str(row["readiness_status"]).strip()
-        for _, row in latest_prep_df.iterrows()
-        if pd.notna(row["thesis_id"]) and pd.notna(row["readiness_status"])
-    }
     active_evaluations = int(theses_df[theses_df["status"].fillna("") != STATUS_CLOSED]["id"].count())
     ready_for_analyst = sum(1 for status in readiness_by_thesis_id.values() if status == "ready_for_analyst")
     preparing_count = sum(1 for status in readiness_by_thesis_id.values() if status in ["pending", "preparing"]) 
@@ -3289,21 +3461,24 @@ elif st.session_state['current_view'] == 'New Thesis':
             if not ticker.strip():
                 st.error("Ticker is required.")
             else:
-                preparation_status = prepare_evaluation(
-                    ticker=ticker,
-                    observation_date=observation_date,
-                    company_name=company_name,
-                    reviewer=reviewer,
-                )
-                st.session_state['engine_preparation_status'] = preparation_status
+                normalized_ticker = ticker.strip().upper()
+                st.session_state["active_evaluation_request"] = {
+                    "ticker": normalized_ticker,
+                    "observation_date": observation_date.isoformat(),
+                    "company_name": company_name.strip() if company_name else "",
+                    "reviewer": reviewer.strip() if reviewer else "",
+                }
+                st.session_state["active_evaluation_thesis_id"] = None
+                st.session_state["engine_preparation_status"] = None
+                st.session_state["pending_prepare_request"] = {
+                    "ticker": normalized_ticker,
+                    "observation_date": observation_date,
+                    "company_name": company_name,
+                    "reviewer": reviewer,
+                }
 
-                thesis_id = preparation_status.get("thesis_id")
-                readiness_status = preparation_status.get("readiness_status")
-
-                if thesis_id is not None and readiness_status in ["ready_for_analyst", "partial"]:
-                    open_thesis_workspace(thesis_id)
-
-                render_preparation_status(preparation_status)
+                st.session_state["current_view"] = "Home"
+                st.rerun()
 
 elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis Workspace']:
     # Get thesis data

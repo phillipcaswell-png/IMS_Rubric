@@ -118,3 +118,180 @@ def build_decision_prep_summary(gate_result, completed_business, completed_inves
         "completed_investment": int(completed_investment),
         "next_action": next_action,
     }
+
+
+def prioritize_active_evaluation_rows(rows, active_thesis_id):
+    """Place the active evaluation first while preserving the existing row order."""
+    if active_thesis_id is None:
+        return list(rows or [])
+
+    ordered_rows = list(rows or [])
+    head = []
+    tail = []
+    for row in ordered_rows:
+        thesis_id = row.get("thesis_id") if isinstance(row, dict) else None
+        if thesis_id == active_thesis_id:
+            head.append(row)
+        else:
+            tail.append(row)
+    return head + tail
+
+
+def summarize_preparation_failure(preparation_status):
+    """Return the most useful failure explanation available from existing status fields."""
+    if not isinstance(preparation_status, dict):
+        return ""
+
+    for key in ["errors", "extraction_warnings", "acquisition_warnings", "discovery_warnings", "warnings"]:
+        values = preparation_status.get(key, [])
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            text = str(value).strip()
+            if text:
+                return text
+    return "Preparation stopped before Athena could complete workspace handoff."
+
+
+def derive_workflow_ownership_state(preparation_status):
+    """Map preparation output to the Home ownership states: Preparing, Ready, or Failed."""
+    readiness_status = "pending"
+    lifecycle_state = "preparing"
+    if isinstance(preparation_status, dict):
+        readiness_status = str(preparation_status.get("readiness_status", "pending")).strip().lower()
+        lifecycle_state = str(preparation_status.get("lifecycle_state", "preparing")).strip().lower()
+
+    if readiness_status == "ready_for_analyst":
+        return {"status": "Ready", "reason": ""}
+
+    if readiness_status in {"failed", "partial"}:
+        return {
+            "status": "Failed",
+            "reason": summarize_preparation_failure(preparation_status),
+        }
+
+    if lifecycle_state in {"failed"}:
+        return {
+            "status": "Failed",
+            "reason": summarize_preparation_failure(preparation_status),
+        }
+
+    return {"status": "Preparing", "reason": ""}
+
+
+def resolve_active_evaluation_identity(
+    current_active_thesis_id,
+    available_thesis_ids,
+    active_request,
+    latest_preparation_by_thesis,
+    engine_preparation_status,
+):
+    """Resolve active ownership, prioritizing the latest accepted prepare request."""
+    available_ids = set()
+    for thesis_id in available_thesis_ids or []:
+        try:
+            available_ids.add(int(thesis_id))
+        except (TypeError, ValueError):
+            continue
+
+    request_ticker = ""
+    if isinstance(active_request, dict):
+        request_ticker = str(active_request.get("ticker", "")).strip().upper()
+
+    if request_ticker:
+        matches = []
+        for thesis_id, prep_status in (latest_preparation_by_thesis or {}).items():
+            try:
+                normalized_id = int(thesis_id)
+            except (TypeError, ValueError):
+                continue
+            if normalized_id not in available_ids:
+                continue
+
+            prep_ticker = str((prep_status or {}).get("ticker", "")).strip().upper()
+            if prep_ticker != request_ticker:
+                continue
+
+            prep_id = 0
+            try:
+                prep_id = int((prep_status or {}).get("preparation_id") or 0)
+            except (TypeError, ValueError):
+                prep_id = 0
+            matches.append((prep_id, normalized_id))
+
+        if matches:
+            matches.sort(reverse=True)
+            return {
+                "active_thesis_id": matches[0][1],
+                "pending_request": False,
+            }
+
+        return {
+            "active_thesis_id": None,
+            "pending_request": True,
+        }
+
+    def _prep_id_for(thesis_id):
+        if thesis_id is None:
+            return -1
+        prep_status = (latest_preparation_by_thesis or {}).get(int(thesis_id), {})
+        try:
+            return int(prep_status.get("preparation_id") or -1)
+        except (TypeError, ValueError):
+            return -1
+
+    latest_prep_entry = None
+    for thesis_id, prep_status in (latest_preparation_by_thesis or {}).items():
+        try:
+            normalized_id = int(thesis_id)
+        except (TypeError, ValueError):
+            continue
+        if normalized_id not in available_ids:
+            continue
+        try:
+            prep_id = int((prep_status or {}).get("preparation_id") or -1)
+        except (TypeError, ValueError):
+            prep_id = -1
+        if latest_prep_entry is None or prep_id > latest_prep_entry[0]:
+            latest_prep_entry = (prep_id, normalized_id)
+
+    if current_active_thesis_id is not None:
+        try:
+            normalized_current = int(current_active_thesis_id)
+        except (TypeError, ValueError):
+            normalized_current = None
+        if normalized_current is not None and normalized_current in available_ids:
+            current_prep_id = _prep_id_for(normalized_current)
+            if latest_prep_entry is not None and latest_prep_entry[0] > current_prep_id:
+                return {
+                    "active_thesis_id": latest_prep_entry[1],
+                    "pending_request": False,
+                }
+            return {
+                "active_thesis_id": normalized_current,
+                "pending_request": False,
+            }
+
+    if latest_prep_entry is not None:
+        return {
+            "active_thesis_id": latest_prep_entry[1],
+            "pending_request": False,
+        }
+
+    if isinstance(engine_preparation_status, dict):
+        engine_thesis_id = engine_preparation_status.get("thesis_id")
+        if engine_thesis_id is not None:
+            try:
+                normalized_engine = int(engine_thesis_id)
+            except (TypeError, ValueError):
+                normalized_engine = None
+            if normalized_engine is not None and normalized_engine in available_ids:
+                return {
+                    "active_thesis_id": normalized_engine,
+                    "pending_request": False,
+                }
+
+    return {
+        "active_thesis_id": None,
+        "pending_request": False,
+    }

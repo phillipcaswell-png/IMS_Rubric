@@ -1,7 +1,11 @@
 from workflow_assistant import (
     build_decision_prep_summary,
     build_rationale_draft,
+    derive_workflow_ownership_state,
     normalize_promotion_candidates,
+    prioritize_active_evaluation_rows,
+    resolve_active_evaluation_identity,
+    summarize_preparation_failure,
 )
 
 
@@ -73,3 +77,87 @@ def test_build_decision_prep_summary_reflects_gate_blockers():
     assert result["decision_ready"] is False
     assert result["missing_count"] == 1
     assert "blockers" in result["next_action"].lower()
+
+
+def test_prioritize_active_evaluation_rows_moves_active_to_front():
+    rows = [
+        {"thesis_id": 3, "Company": "Meta"},
+        {"thesis_id": 8, "Company": "NVIDIA"},
+        {"thesis_id": 11, "Company": "Microsoft"},
+    ]
+
+    ordered = prioritize_active_evaluation_rows(rows, active_thesis_id=11)
+
+    assert [row["thesis_id"] for row in ordered] == [11, 3, 8]
+
+
+def test_summarize_preparation_failure_uses_first_available_signal():
+    status = {
+        "warnings": ["generic warning"],
+        "discovery_warnings": ["discovery warning"],
+        "acquisition_warnings": ["acquisition warning"],
+        "extraction_warnings": ["extraction warning"],
+        "errors": ["hard failure"],
+    }
+
+    reason = summarize_preparation_failure(status)
+
+    assert reason == "hard failure"
+
+
+def test_derive_workflow_ownership_state_covers_preparing_ready_failed():
+    assert derive_workflow_ownership_state({"readiness_status": "pending"})["status"] == "Preparing"
+    assert derive_workflow_ownership_state({"readiness_status": "ready_for_analyst"})["status"] == "Ready"
+
+    failed = derive_workflow_ownership_state(
+        {"readiness_status": "failed", "errors": ["SEC blocked"]}
+    )
+    assert failed["status"] == "Failed"
+    assert "SEC blocked" in failed["reason"]
+
+
+def test_active_identity_prioritizes_new_request_before_old_engine_status():
+    resolved = resolve_active_evaluation_identity(
+        current_active_thesis_id=9,
+        available_thesis_ids=[9, 11],
+        active_request={"ticker": "INTC"},
+        latest_preparation_by_thesis={
+            11: {"preparation_id": 4, "ticker": "INTC"},
+            9: {"preparation_id": 2, "ticker": "MSFT"},
+        },
+        engine_preparation_status={"thesis_id": 9},
+    )
+
+    assert resolved["active_thesis_id"] == 11
+    assert resolved["pending_request"] is False
+
+
+def test_active_identity_marks_pending_when_request_accepted_but_not_persisted():
+    resolved = resolve_active_evaluation_identity(
+        current_active_thesis_id=9,
+        available_thesis_ids=[9],
+        active_request={"ticker": "INTC"},
+        latest_preparation_by_thesis={
+            9: {"preparation_id": 2, "ticker": "MSFT"},
+        },
+        engine_preparation_status={"thesis_id": 9},
+    )
+
+    assert resolved["active_thesis_id"] is None
+    assert resolved["pending_request"] is True
+
+
+def test_active_identity_prefers_newest_persisted_preparation_when_newer_than_current():
+    resolved = resolve_active_evaluation_identity(
+        current_active_thesis_id=11,
+        available_thesis_ids=[11, 12],
+        active_request=None,
+        latest_preparation_by_thesis={
+            11: {"preparation_id": 4, "ticker": "INTC"},
+            12: {"preparation_id": 5, "ticker": "QCOM"},
+        },
+        engine_preparation_status={"thesis_id": 11},
+    )
+
+    assert resolved["active_thesis_id"] == 12
+    assert resolved["pending_request"] is False
