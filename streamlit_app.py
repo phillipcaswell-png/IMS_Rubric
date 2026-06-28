@@ -200,6 +200,12 @@ RAG_YELLOW = "Yellow"
 RAG_RED = "Red"
 RAG_ORANGE = "Orange"
 
+ATHENA_SIDEBAR_VERSION_TEXT = "Athena v1.8.3"
+ATHENA_SIDEBAR_FOOTER_TEXT = "Constitutional • Auditable • Reproducible"
+ATHENA_GOVERNED_FOOTER_TEXT = (
+    "Governed by Athena Charter v1.0 • Evidence-bounded • Reproducible • Auditable"
+)
+
 # Page configuration
 st.set_page_config(
     page_title="Athena",
@@ -588,10 +594,7 @@ def render_summary_row(title, subtitle, tiles):
 
 def render_athena_footer():
     """Render the small governed footer used on routed pages."""
-    st.markdown(
-        "<div class='athena-footer'>Governed by Athena Charter v1.0 • Evidence-bounded • Reproducible • Auditable</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"<div class='athena-footer'>{ATHENA_GOVERNED_FOOTER_TEXT}</div>", unsafe_allow_html=True)
 
 
 def render_workspace_header(analyst_name=None, primary_text="Continue where you left off."):
@@ -3174,11 +3177,23 @@ with st.sidebar:
         st.session_state["selected_thesis_id"] = None
         st.rerun()
     st.markdown(
-        "<div style='margin-top:0.8rem; color:#8D95A8; font-size:0.78rem; line-height:1.4;'>Athena v1.8.3<br/>Constitutional • Auditable • Reproducible</div>",
+        f"<div style='margin-top:0.8rem; color:#8D95A8; font-size:0.78rem; line-height:1.4;'>{ATHENA_SIDEBAR_VERSION_TEXT}<br/>{ATHENA_SIDEBAR_FOOTER_TEXT}</div>",
         unsafe_allow_html=True,
     )
 
 _capture_navigation_event()
+
+review_presence_df = fetch_dataframe("SELECT DISTINCT thesis_id FROM thesis_reviews")
+reviewed_ids = set(review_presence_df["thesis_id"].astype(int).tolist()) if not review_presence_df.empty else set()
+
+framework_eligible_df = fetch_dataframe(
+    """
+    SELECT DISTINCT thesis_id
+    FROM thesis_reviews
+    WHERE framework_review_eligible = 1
+    """
+)
+framework_eligible_ids = set(framework_eligible_df["thesis_id"].astype(int).tolist()) if not framework_eligible_df.empty else set()
 
 # Main content area
 if st.session_state['current_view'] in ['Home', 'Dashboard']:
@@ -3804,18 +3819,6 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
         }
         for _, row in score_rollup_df.iterrows()
     } if not score_rollup_df.empty else {}
-
-    review_presence_df = fetch_dataframe("SELECT DISTINCT thesis_id FROM thesis_reviews")
-    reviewed_ids = set(review_presence_df["thesis_id"].astype(int).tolist()) if not review_presence_df.empty else set()
-
-    framework_eligible_df = fetch_dataframe(
-        """
-        SELECT DISTINCT thesis_id
-        FROM thesis_reviews
-        WHERE framework_review_eligible = 1
-        """
-    )
-    framework_eligible_ids = set(framework_eligible_df["thesis_id"].astype(int).tolist()) if not framework_eligible_df.empty else set()
 
     active_evaluation_thesis_id = _resolve_active_evaluation_thesis_id(theses_df, latest_prep_by_thesis_id)
 
