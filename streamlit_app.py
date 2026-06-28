@@ -699,6 +699,469 @@ def summary_field(label, value):
     st.write(f"**{label}:** {value}")
 
 
+def _derive_lifecycle_status(complete_condition, current_condition):
+    """Map deterministic lifecycle state to complete/current/pending."""
+    if complete_condition:
+        return "complete"
+    if current_condition:
+        return "current"
+    return "pending"
+
+
+def build_thesis_overview_vm(thesis_id: int) -> dict:
+    """Assemble a read-only Thesis Overview View Model."""
+    thesis_df = fetch_dataframe(
+        "SELECT * FROM theses WHERE id = ?",
+        (thesis_id,),
+    )
+
+    if thesis_df.empty:
+        return {
+            "header": {
+                "company_name": "Unknown Thesis",
+                "ticker": "—",
+                "validation_mode": False,
+                "cutoff_date": None,
+            },
+            "governance": {
+                "gate_complete": 0,
+                "gate_required": 11,
+                "gate_pct": 0.0,
+                "decision_recorded": False,
+                "missing": [],
+                "validation_locked": False,
+            },
+            "lifecycle": {
+                "perception_status": "pending",
+                "understanding_status": "pending",
+                "judgment_status": "pending",
+                "commitment_status": "pending",
+                "memory_status": "pending",
+            },
+            "evidence": {
+                "promoted_count": 0,
+                "staging_count": 0,
+                "staging_by_status": {},
+                "latest_publication_date": None,
+            },
+            "observations": {
+                "count": 0,
+            },
+            "scoring": {
+                "business_avg": None,
+                "investment_avg": None,
+                "pillars_complete": 0,
+                "pillars_required": 11,
+            },
+            "decision": {
+                "recommendation": None,
+                "conviction": None,
+                "recorded_date": None,
+            },
+            "reviews": {
+                "horizons_complete": 0,
+                "horizons_required": len(REVIEW_HORIZON_OPTIONS),
+                "latest_horizon": None,
+                "review_count": 0,
+                "framework_review_eligible_count": 0,
+                "latest_review_date": None,
+            },
+            "attribution": {
+                "type": None,
+                "recorded_date": None,
+            },
+            "next_action": {
+                "text": "No immediate governed action from Hermes.",
+                "reason": None,
+                "priority": None,
+            },
+            "assessment": None,
+            "summary": {
+                "reviewer": "—",
+                "status": "—",
+                "drl": "—",
+                "primary_horizon": "—",
+                "regime_state": "—",
+                "created_at": None,
+                "decision_question": "—",
+            },
+            "progress": {
+                "evidence_count": 0,
+                "business_pillars_completed": 0,
+                "investment_pillars_completed": 0,
+                "audit_event_count": 0,
+            },
+            "timeline": {
+                "rows": pd.DataFrame(),
+            },
+            "prebrief": {
+                "raw": {},
+                "provenance": {},
+                "blockers": {},
+            },
+            "json_export": {
+                "payload": {},
+                "json_string": "{}",
+            },
+        }
+
+    thesis = thesis_df.iloc[0]
+    validation_mode_enabled = int(thesis["validation_mode"]) == 1 if pd.notna(thesis["validation_mode"]) else False
+    cutoff_date = str(thesis["evidence_cutoff_date"]).strip() if pd.notna(thesis["evidence_cutoff_date"]) and str(thesis["evidence_cutoff_date"]).strip() else None
+
+    metrics = get_overview_metrics(thesis_id)
+    validation_locked = is_validation_configuration_locked(thesis_id)
+    athena_prebrief = get_athena_prebrief(thesis_id)
+
+    lifecycle_state = athena_prebrief.get("lifecycle_state", {})
+    governance_readiness = athena_prebrief.get("governance_readiness", {})
+    evidence_summary_data = athena_prebrief.get("evidence_summary", {})
+    historical_context_data = athena_prebrief.get("historical_context", {})
+
+    gate_complete = int(governance_readiness.get("completed", 0))
+    gate_required = int(governance_readiness.get("required", 11))
+    gate_pct = 0.0 if gate_required == 0 else min(max(gate_complete / gate_required, 0.0), 1.0)
+    decision_recorded = bool(lifecycle_state.get("decision_recorded"))
+
+    observations_df = fetch_dataframe(
+        """
+        SELECT COUNT(*) AS observation_count
+        FROM evidence_observations eo
+        JOIN evidence_items ei ON ei.id = eo.evidence_item_id
+        WHERE ei.thesis_id = ?
+          AND eo.status = ?
+        """,
+        (thesis_id, OBSERVATION_STATUS_ACTIVE),
+    )
+    observations_count = int(observations_df.iloc[0]["observation_count"]) if not observations_df.empty else 0
+
+    scoring_df = fetch_dataframe(
+        """
+        SELECT
+            ROUND(AVG(CASE WHEN pillar_id LIKE 'B%' THEN score END), 1) AS business_avg,
+            ROUND(AVG(CASE WHEN pillar_id LIKE 'I%' THEN score END), 1) AS investment_avg
+        FROM pillar_scores
+        WHERE thesis_id = ?
+          AND score IS NOT NULL
+        """,
+        (thesis_id,),
+    )
+    business_avg = float(scoring_df.iloc[0]["business_avg"]) if not scoring_df.empty and pd.notna(scoring_df.iloc[0]["business_avg"]) else None
+    investment_avg = float(scoring_df.iloc[0]["investment_avg"]) if not scoring_df.empty and pd.notna(scoring_df.iloc[0]["investment_avg"]) else None
+
+    latest_decision_df = fetch_dataframe(
+        """
+        SELECT recommendation, created_at
+        FROM decision_logs
+        WHERE thesis_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (thesis_id,),
+    )
+    latest_decision_row = latest_decision_df.iloc[0] if not latest_decision_df.empty else None
+
+    latest_review_df = fetch_dataframe(
+        """
+        SELECT review_horizon, outcome_attribution_type, review_date
+        FROM thesis_reviews
+        WHERE thesis_id = ?
+        ORDER BY review_date DESC, id DESC
+        LIMIT 1
+        """,
+        (thesis_id,),
+    )
+    latest_review_row = latest_review_df.iloc[0] if not latest_review_df.empty else None
+
+    hermes_tasks = [
+        task
+        for task in compute_hermes_inbox()
+        if task.get("thesis_id") is not None and int(task.get("thesis_id")) == int(thesis_id)
+    ]
+    primary_task = hermes_tasks[0] if hermes_tasks else None
+
+    promoted_count = int(evidence_summary_data.get("repository_count", 0))
+    staging_count = int(evidence_summary_data.get("staging_total", 0))
+    horizons_complete = len(historical_context_data.get("horizons_present", []))
+
+    lifecycle_perception = _derive_lifecycle_status(
+        complete_condition=promoted_count > 0,
+        current_condition=staging_count > 0,
+    )
+    lifecycle_understanding = _derive_lifecycle_status(
+        complete_condition=observations_count > 0,
+        current_condition=promoted_count > 0,
+    )
+    lifecycle_judgment = _derive_lifecycle_status(
+        complete_condition=gate_complete >= gate_required and gate_required > 0,
+        current_condition=gate_complete > 0,
+    )
+    lifecycle_commitment = _derive_lifecycle_status(
+        complete_condition=decision_recorded,
+        current_condition=gate_complete >= gate_required and gate_required > 0,
+    )
+    lifecycle_memory = _derive_lifecycle_status(
+        complete_condition=int(historical_context_data.get("review_count", 0)) > 0,
+        current_condition=decision_recorded,
+    )
+
+    timeline_df = fetch_dataframe(
+        """
+        SELECT created_at as Timestamp, event_type as 'Event Type', event_description as Description, created_by as 'Created By'
+        FROM thesis_events
+        WHERE thesis_id = ?
+        ORDER BY created_at DESC
+        LIMIT 20
+        """,
+        (thesis_id,),
+    )
+
+    thesis_json = build_thesis_json(thesis_id)
+
+    return {
+        "header": {
+            "company_name": thesis["company_name"],
+            "ticker": thesis["ticker"] if pd.notna(thesis["ticker"]) and str(thesis["ticker"]).strip() else "—",
+            "validation_mode": validation_mode_enabled,
+            "cutoff_date": cutoff_date,
+        },
+        "governance": {
+            "gate_complete": gate_complete,
+            "gate_required": gate_required,
+            "gate_pct": gate_pct,
+            "decision_recorded": decision_recorded,
+            "missing": governance_readiness.get("missing", []),
+            "validation_locked": validation_locked,
+        },
+        "lifecycle": {
+            "perception_status": lifecycle_perception,
+            "understanding_status": lifecycle_understanding,
+            "judgment_status": lifecycle_judgment,
+            "commitment_status": lifecycle_commitment,
+            "memory_status": lifecycle_memory,
+        },
+        "evidence": {
+            "promoted_count": promoted_count,
+            "staging_count": staging_count,
+            "staging_by_status": evidence_summary_data.get("staging_by_status", {}),
+            "latest_publication_date": evidence_summary_data.get("latest_repository_publication_date"),
+        },
+        "observations": {
+            "count": observations_count,
+        },
+        "scoring": {
+            "business_avg": business_avg,
+            "investment_avg": investment_avg,
+            "pillars_complete": gate_complete,
+            "pillars_required": gate_required,
+        },
+        "decision": {
+            "recommendation": (
+                str(latest_decision_row["recommendation"]).strip()
+                if latest_decision_row is not None and pd.notna(latest_decision_row["recommendation"]) and str(latest_decision_row["recommendation"]).strip()
+                else None
+            ),
+            # Future extension: no canonical conviction field exists yet.
+            "conviction": None,
+            "recorded_date": (
+                str(latest_decision_row["created_at"]).strip()
+                if latest_decision_row is not None and pd.notna(latest_decision_row["created_at"]) and str(latest_decision_row["created_at"]).strip()
+                else None
+            ),
+        },
+        "reviews": {
+            "horizons_complete": horizons_complete,
+            "horizons_required": len(REVIEW_HORIZON_OPTIONS),
+            "latest_horizon": (
+                str(latest_review_row["review_horizon"]).strip()
+                if latest_review_row is not None and pd.notna(latest_review_row["review_horizon"]) and str(latest_review_row["review_horizon"]).strip()
+                else None
+            ),
+            "review_count": int(historical_context_data.get("review_count", 0)),
+            "framework_review_eligible_count": int(historical_context_data.get("framework_review_eligible_count", 0)),
+            "latest_review_date": historical_context_data.get("latest_review_date"),
+        },
+        "attribution": {
+            "type": (
+                str(latest_review_row["outcome_attribution_type"]).strip()
+                if latest_review_row is not None and pd.notna(latest_review_row["outcome_attribution_type"]) and str(latest_review_row["outcome_attribution_type"]).strip()
+                else None
+            ),
+            "recorded_date": (
+                str(latest_review_row["review_date"]).strip()
+                if latest_review_row is not None and pd.notna(latest_review_row["review_date"]) and str(latest_review_row["review_date"]).strip()
+                else None
+            ),
+        },
+        "next_action": {
+            "text": (
+                primary_task.get("action")
+                if primary_task is not None and primary_task.get("action")
+                else athena_prebrief.get("next_action", "No immediate governed action from Hermes.")
+            ),
+            "reason": (
+                primary_task.get("description")
+                if primary_task is not None and primary_task.get("description")
+                else (primary_task.get("task_type") if primary_task is not None else None)
+            ),
+            "priority": int(primary_task["priority"]) if primary_task is not None and primary_task.get("priority") is not None else None,
+        },
+        "assessment": None,
+        "summary": {
+            "reviewer": thesis["reviewer"] if pd.notna(thesis["reviewer"]) and str(thesis["reviewer"]).strip() else "—",
+            "status": thesis["status"] if pd.notna(thesis["status"]) and str(thesis["status"]).strip() else "—",
+            "drl": thesis["drl"] if pd.notna(thesis["drl"]) and str(thesis["drl"]).strip() else "—",
+            "primary_horizon": thesis["primary_horizon"] if pd.notna(thesis["primary_horizon"]) and str(thesis["primary_horizon"]).strip() else "—",
+            "regime_state": thesis["regime_state"] if pd.notna(thesis["regime_state"]) and str(thesis["regime_state"]).strip() else "—",
+            "created_at": thesis["created_at"] if pd.notna(thesis["created_at"]) and str(thesis["created_at"]).strip() else None,
+            "decision_question": thesis["decision_question"] if pd.notna(thesis["decision_question"]) and str(thesis["decision_question"]).strip() else "—",
+        },
+        "progress": {
+            "evidence_count": int(metrics["evidence_count"]),
+            "business_pillars_completed": int(metrics["business_pillars_completed"]),
+            "investment_pillars_completed": int(metrics["investment_pillars_completed"]),
+            "audit_event_count": int(metrics["audit_event_count"]),
+        },
+        "timeline": {
+            "rows": timeline_df,
+        },
+        "prebrief": {
+            "raw": athena_prebrief,
+            "provenance": athena_prebrief.get("provenance", {}),
+            "blockers": athena_prebrief.get("blockers", {}),
+        },
+        "json_export": {
+            "payload": thesis_json,
+            "json_string": json.dumps(thesis_json, indent=2, default=str),
+        },
+    }
+
+
+def render_thesis_overview(vm):
+    """Render Thesis Overview using a single, pre-assembled View Model."""
+    section_header("Evaluation Summary")
+    col1, col2 = st.columns(2)
+    with col1:
+        summary_field("Company", vm["header"]["company_name"])
+        summary_field("Ticker", vm["header"]["ticker"])
+        summary_field("Reviewer", vm["summary"]["reviewer"])
+        summary_field("DRL", vm["summary"]["drl"])
+        summary_field("Validation Mode", "Enabled" if vm["header"]["validation_mode"] else "Disabled")
+    with col2:
+        summary_field("Status", vm["summary"]["status"])
+        summary_field("Primary Horizon", vm["summary"]["primary_horizon"])
+        summary_field("Regime State", vm["summary"]["regime_state"])
+        summary_field("Created", vm["summary"]["created_at"] or "—")
+        summary_field("Evidence Cutoff Date", vm["header"]["cutoff_date"] or "—")
+
+    if vm["governance"]["validation_locked"]:
+        st.info("Validation mode and evidence cutoff date are immutable after the first decision record. Use a new thesis for a different historical scenario.")
+
+    summary_field("Decision Question", vm["summary"]["decision_question"])
+
+    st.divider()
+    section_header("Athena Pre-Brief")
+
+    st.markdown("**Lifecycle State**")
+    summary_field("Status", vm["summary"]["status"])
+    summary_field("Decision Recorded", "Yes" if vm["governance"]["decision_recorded"] else "No")
+    summary_field("Validation Configuration Locked", "Yes" if vm["governance"]["validation_locked"] else "No")
+
+    st.markdown("**Governance Readiness**")
+    summary_field("Eligible", "Yes" if vm["governance"]["gate_complete"] >= vm["governance"]["gate_required"] else "No")
+    summary_field("Completion", f"{vm['governance']['gate_complete']} / {vm['governance']['gate_required']}")
+    if vm["governance"]["missing"]:
+        st.write("Missing Requirements:")
+        for item in vm["governance"]["missing"]:
+            st.write(f"- {item['pillar_id']} — {item['label']}")
+    else:
+        st.write("Missing Requirements: —")
+
+    st.markdown("**Evidence Summary**")
+    summary_field("Repository Evidence Count", vm["evidence"]["promoted_count"])
+    summary_field("Staging Total", vm["evidence"]["staging_count"])
+    summary_field("Latest Repository Publication Date", vm["evidence"]["latest_publication_date"] or "—")
+    if vm["evidence"]["staging_by_status"]:
+        st.write("Staging by Status:")
+        for status_name, status_count in vm["evidence"]["staging_by_status"].items():
+            st.write(f"- {status_name}: {status_count}")
+    else:
+        st.write("Staging by Status: —")
+
+    st.markdown("**Historical Context**")
+    summary_field("Review Count", vm["reviews"]["review_count"])
+    summary_field("Framework Review Consideration Eligible Count", vm["reviews"]["framework_review_eligible_count"])
+    summary_field("Latest Review Date", vm["reviews"]["latest_review_date"] or "—")
+    prebrief_raw = vm["prebrief"]["raw"]
+    horizons_present = prebrief_raw.get("historical_context", {}).get("horizons_present", [])
+    summary_field("Horizons Present", ", ".join(horizons_present) if horizons_present else "—")
+
+    st.markdown("**Blockers**")
+    blockers_data = vm["prebrief"]["blockers"]
+    for subsystem_name in ["theia", "hermes", "themis", "mnemosyne"]:
+        subsystem_blockers = blockers_data.get(subsystem_name, [])
+        if subsystem_blockers:
+            st.write(f"- {subsystem_name}:")
+            for blocker_item in subsystem_blockers:
+                st.write(f"  - {blocker_item}")
+        else:
+            st.write(f"- {subsystem_name}: none")
+
+    st.markdown("**Next Governed Action**")
+    st.write(vm["next_action"]["text"] or "—")
+
+    st.markdown("**Provenance**")
+    provenance_data = vm["prebrief"]["provenance"]
+    summary_field("Lifecycle State Owner", provenance_data.get("lifecycle_state", "—"))
+    summary_field("Governance Readiness Owner", provenance_data.get("governance_readiness", "—"))
+    summary_field("Evidence Summary Owner", provenance_data.get("evidence_summary", "—"))
+    summary_field("Historical Context Owner", provenance_data.get("historical_context", "—"))
+    summary_field("Next Action Owner", provenance_data.get("next_action", "—"))
+
+    with st.expander("Raw Pre-Brief Object"):
+        st.json(vm["prebrief"]["raw"])
+
+    st.divider()
+
+    section_header("Progress")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        metric_card("Evidence Items", vm["progress"]["evidence_count"])
+    with col2:
+        metric_card("Business Pillars", vm["progress"]["business_pillars_completed"])
+    with col3:
+        metric_card("Investment Pillars", vm["progress"]["investment_pillars_completed"])
+    with col4:
+        metric_card("Audit Events", vm["progress"]["audit_event_count"])
+
+    st.divider()
+    section_header("Timeline")
+    timeline_table(vm["timeline"]["rows"])
+
+    st.divider()
+    section_header("Athena Constitutional Status")
+    milestones = [
+        ("Perception", vm["lifecycle"]["perception_status"] == "complete"),
+        ("Understanding", vm["lifecycle"]["understanding_status"] == "complete"),
+        ("Judgment", vm["lifecycle"]["judgment_status"] == "complete"),
+        ("Commitment", vm["lifecycle"]["commitment_status"] == "complete"),
+        ("Memory", vm["lifecycle"]["memory_status"] == "complete"),
+    ]
+    for label, is_checked in milestones:
+        st.checkbox(label, value=is_checked, disabled=True)
+
+    st.divider()
+    section_header("JSON Export")
+    st.json(vm["json_export"]["payload"])
+    st.download_button(
+        label="Download Athena Evaluation JSON",
+        data=vm["json_export"]["json_string"],
+        file_name=f"ims_thesis_{vm['header']['company_name']}.json",
+        mime="application/json",
+        key="json_download",
+    )
+
+
 # Initialize database on app start
 init_db()
 
@@ -1546,182 +2009,8 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         )
         
         with tab1:
-            # Get overview metrics
-            metrics = get_overview_metrics(thesis_id)
-            validation_locked = is_validation_configuration_locked(thesis_id)
-            athena_prebrief = get_athena_prebrief(thesis_id)
-            
-            # Section 1: Evaluation Summary
-            section_header("Evaluation Summary")
-            col1, col2 = st.columns(2)
-            with col1:
-                summary_field("Company", thesis['company_name'])
-                summary_field("Ticker", thesis['ticker'] or "—")
-                summary_field("Reviewer", thesis['reviewer'] or "—")
-                summary_field("DRL", thesis['drl'] or "—")
-                validation_mode_enabled = int(thesis['validation_mode']) == 1 if pd.notna(thesis['validation_mode']) else False
-                summary_field("Validation Mode", "Enabled" if validation_mode_enabled else "Disabled")
-            with col2:
-                summary_field("Status", thesis['status'] or "—")
-                summary_field("Primary Horizon", thesis['primary_horizon'] or "—")
-                summary_field("Regime State", thesis['regime_state'] or "—")
-                summary_field("Created", thesis['created_at'] or "—")
-                summary_field("Evidence Cutoff Date", thesis['evidence_cutoff_date'] if pd.notna(thesis['evidence_cutoff_date']) and str(thesis['evidence_cutoff_date']).strip() else "—")
-
-            if validation_locked:
-                st.info("Validation mode and evidence cutoff date are immutable after the first decision record. Use a new thesis for a different historical scenario.")
-            
-            summary_field("Decision Question", thesis['decision_question'])
-
-            st.divider()
-            section_header("Athena Pre-Brief")
-
-            lifecycle_state = athena_prebrief.get("lifecycle_state", {})
-            governance_readiness = athena_prebrief.get("governance_readiness", {})
-            evidence_summary_data = athena_prebrief.get("evidence_summary", {})
-            historical_context_data = athena_prebrief.get("historical_context", {})
-            blockers_data = athena_prebrief.get("blockers", {})
-            provenance_data = athena_prebrief.get("provenance", {})
-
-            st.markdown("**Lifecycle State**")
-            summary_field("Status", lifecycle_state.get("status", "—"))
-            summary_field("Decision Recorded", "Yes" if lifecycle_state.get("decision_recorded") else "No")
-            summary_field("Validation Configuration Locked", "Yes" if lifecycle_state.get("validation_configuration_locked") else "No")
-
-            st.markdown("**Governance Readiness**")
-            summary_field("Eligible", "Yes" if governance_readiness.get("eligible") else "No")
-            summary_field(
-                "Completion",
-                f"{governance_readiness.get('completed', 0)} / {governance_readiness.get('required', 11)}",
-            )
-            missing_requirements = governance_readiness.get("missing", [])
-            if missing_requirements:
-                st.write("Missing Requirements:")
-                for item in missing_requirements:
-                    st.write(f"- {item['pillar_id']} — {item['label']}")
-            else:
-                st.write("Missing Requirements: —")
-
-            st.markdown("**Evidence Summary**")
-            summary_field("Repository Evidence Count", evidence_summary_data.get("repository_count", 0))
-            summary_field("Staging Total", evidence_summary_data.get("staging_total", 0))
-            summary_field(
-                "Latest Repository Publication Date",
-                evidence_summary_data.get("latest_repository_publication_date") or "—",
-            )
-            staging_by_status_data = evidence_summary_data.get("staging_by_status", {})
-            if staging_by_status_data:
-                st.write("Staging by Status:")
-                for status_name, status_count in staging_by_status_data.items():
-                    st.write(f"- {status_name}: {status_count}")
-            else:
-                st.write("Staging by Status: —")
-
-            st.markdown("**Historical Context**")
-            summary_field("Review Count", historical_context_data.get("review_count", 0))
-            summary_field(
-                "Framework Review Consideration Eligible Count",
-                historical_context_data.get("framework_review_eligible_count", 0),
-            )
-            summary_field("Latest Review Date", historical_context_data.get("latest_review_date") or "—")
-            horizons_present_data = historical_context_data.get("horizons_present", [])
-            summary_field(
-                "Horizons Present",
-                ", ".join(horizons_present_data) if horizons_present_data else "—",
-            )
-
-            st.markdown("**Blockers**")
-            for subsystem_name in ["theia", "hermes", "themis", "mnemosyne"]:
-                subsystem_blockers = blockers_data.get(subsystem_name, [])
-                if subsystem_blockers:
-                    st.write(f"- {subsystem_name}:")
-                    for blocker_item in subsystem_blockers:
-                        st.write(f"  - {blocker_item}")
-                else:
-                    st.write(f"- {subsystem_name}: none")
-
-            st.markdown("**Next Governed Action**")
-            st.write(athena_prebrief.get("next_action", "—"))
-
-            st.markdown("**Provenance**")
-            summary_field("Lifecycle State Owner", provenance_data.get("lifecycle_state", "—"))
-            summary_field("Governance Readiness Owner", provenance_data.get("governance_readiness", "—"))
-            summary_field("Evidence Summary Owner", provenance_data.get("evidence_summary", "—"))
-            summary_field("Historical Context Owner", provenance_data.get("historical_context", "—"))
-            summary_field("Next Action Owner", provenance_data.get("next_action", "—"))
-
-            with st.expander("Raw Pre-Brief Object"):
-                st.json(athena_prebrief)
-            
-            st.divider()
-            
-            # Section 2: Progress
-            section_header("Progress")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                metric_card("Evidence Items", metrics['evidence_count'])
-            with col2:
-                metric_card("Business Pillars", metrics['business_pillars_completed'])
-            with col3:
-                metric_card("Investment Pillars", metrics['investment_pillars_completed'])
-            with col4:
-                metric_card("Audit Events", metrics['audit_event_count'])
-            
-            st.divider()
-            
-            # Section 3: Timeline
-            section_header("Timeline")
-            timeline_df = fetch_dataframe(
-                "SELECT created_at as Timestamp, event_type as 'Event Type', event_description as Description, created_by as 'Created By' FROM thesis_events WHERE thesis_id = ? ORDER BY created_at DESC LIMIT 20",
-                (thesis_id,)
-            )
-            timeline_table(timeline_df)
-            
-            st.divider()
-            
-            # Section 4: Athena Constitutional Status
-            section_header("Athena Constitutional Status")
-            
-            # Milestones derived from metrics
-            milestones = [
-                ("Evaluation Created", True),
-                ("Evidence Collection Started", metrics["evidence_count"] > 0),
-                ("Business Assessment Started", metrics["business_pillars_completed"] > 0),
-                ("Investment Assessment Started", metrics["investment_pillars_completed"] > 0),
-                ("Decision Recorded", False),
-                ("Monitoring Started", False)
-            ]
-            
-            for label, is_checked in milestones:
-                st.checkbox(label, value=is_checked, disabled=True)
-
-            st.divider()
-
-            # Keep JSON export functionality available inside the workspace.
-            section_header("JSON Export")
-
-            thesis_json = build_thesis_json(thesis_id)
-            st.json(thesis_json)
-
-            json_string = json.dumps(thesis_json, indent=2, default=str)
-            st.download_button(
-                label="Download Athena Evaluation JSON",
-                data=json_string,
-                file_name=f"ims_thesis_{thesis_id}.json",
-                mime="application/json",
-                key="json_download"
-            )
-
-            if st.button("Log This Export", key="json_log"):
-                log_event(
-                    thesis_id=thesis_id,
-                    event_type=EVENT_JSON_EXPORTED,
-                    description="JSON export logged by reviewer.",
-                    created_by=thesis['reviewer'] if thesis['reviewer'] else "System",
-                    version="1.0"
-                )
-                st.success("✓ Export logged")
-                st.rerun()
+            thesis_overview_vm = build_thesis_overview_vm(int(thesis_id))
+            render_thesis_overview(thesis_overview_vm)
         
         with tab2:
             # Add Evidence Item Form
