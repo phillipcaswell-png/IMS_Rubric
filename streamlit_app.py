@@ -25,6 +25,7 @@ from services import (
     validate_decision_gate,
     compute_hermes_inbox,
     get_athena_prebrief,
+    get_athena_evidence_synthesis,
     OBSERVATION_CATEGORY_OPTIONS,
     OBSERVATION_STATUS_OPTIONS,
     OBSERVATION_STATUS_ACTIVE,
@@ -1969,6 +1970,81 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
 
             pillar_id = selected_pillar.split(" ", 1)[0]
             pillar_name = selected_pillar.split(" ", 1)[1]
+
+            synthesis = get_athena_evidence_synthesis(thesis_id=thesis_id, pillar_id=pillar_id)
+
+            st.subheader("Athena Evidence Synthesis")
+
+            st.markdown("**1. Governed Observations**")
+            governed_rows = synthesis.get("governed_observations", [])
+            if not governed_rows:
+                st.caption("No governed observations currently mapped to this pillar.")
+            else:
+                governed_df = pd.DataFrame(governed_rows)
+                governed_view = governed_df[
+                    [
+                        "label",
+                        "observation_id",
+                        "observation_text",
+                        "observation_category",
+                        "evidence_item_id",
+                        "evidence_title",
+                        "analyst_confidence",
+                    ]
+                ]
+                st.dataframe(governed_view, use_container_width=True)
+
+            st.markdown("**2. Advisory Extraction Signals**")
+            advisory_rows = synthesis.get("advisory_signals", [])
+            if not advisory_rows:
+                st.caption("No advisory extraction signals available for this pillar.")
+            else:
+                advisory_df = pd.DataFrame(advisory_rows)
+                advisory_view = advisory_df[
+                    [
+                        "label",
+                        "evidence_item_id",
+                        "evidence_title",
+                        "passage",
+                        "pillar_signal",
+                        "confidence",
+                        "source_location",
+                    ]
+                ]
+                st.dataframe(advisory_view, use_container_width=True)
+
+            st.markdown("**3. Supporting Evidence**")
+            supporting_rows = synthesis.get("supporting_evidence", [])
+            if not supporting_rows:
+                st.caption("No promoted evidence currently linked to this pillar.")
+            else:
+                supporting_df = pd.DataFrame(supporting_rows)
+                supporting_view = supporting_df[
+                    [
+                        "evidence_item_id",
+                        "publication_date",
+                        "source_name",
+                        "title",
+                        "source_publisher",
+                        "evidence_grade",
+                    ]
+                ]
+                st.dataframe(supporting_view, use_container_width=True)
+
+            st.markdown("**4. Coverage Summary**")
+            coverage = synthesis.get("coverage", {})
+            coverage_df = pd.DataFrame(
+                [
+                    {
+                        "Governed Observations": int(coverage.get("governed_observation_count", 0)),
+                        "Advisory Signals": int(coverage.get("advisory_signal_count", 0)),
+                        "Evidence Items": int(coverage.get("evidence_item_count", 0)),
+                    }
+                ]
+            )
+            st.dataframe(coverage_df, use_container_width=True)
+
+            st.divider()
 
             existing_df = fetch_dataframe(
                 "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",

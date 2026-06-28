@@ -2450,6 +2450,171 @@ def compute_hermes_inbox():
 # =============================================================================
 
 
+def get_athena_evidence_synthesis(thesis_id, pillar_id) -> dict:
+    """Build a read-only, pillar-specific Athena evidence synthesis model."""
+    thesis_id_value = int(thesis_id)
+    pillar_id_value = str(pillar_id).strip().upper()
+
+    pillar_labels = {
+        "B1": "Business Quality",
+        "B2": "Competitive Advantage",
+        "B3": "Revenue Quality",
+        "B4": "Financial Resilience",
+        "B5": "Execution Capability",
+        "B6": "Industry Position",
+        "B7": "Systems Importance",
+    }
+
+    response = {
+        "pillar_id": pillar_id_value,
+        "pillar_label": pillar_labels.get(pillar_id_value, "Unknown Pillar"),
+        "governed_observations": [],
+        "advisory_signals": [],
+        "supporting_evidence": [],
+        "coverage": {
+            "governed_observation_count": 0,
+            "advisory_signal_count": 0,
+            "evidence_item_count": 0,
+        },
+    }
+
+    governed_df = fetch_dataframe(
+        """
+        SELECT
+            eo.id AS observation_id,
+            eo.evidence_item_id,
+            eo.observation_category,
+            eo.observation_text,
+            eo.analyst_confidence,
+            ei.title AS evidence_title
+        FROM evidence_observations eo
+        JOIN evidence_items ei ON ei.id = eo.evidence_item_id
+        WHERE ei.thesis_id = ?
+          AND eo.pillar_id = ?
+          AND eo.status = ?
+        ORDER BY
+            CASE WHEN ei.publication_date IS NULL OR TRIM(ei.publication_date) = '' THEN 1 ELSE 0 END ASC,
+            ei.publication_date ASC,
+            eo.id ASC
+        """,
+        (thesis_id_value, pillar_id_value, OBSERVATION_STATUS_ACTIVE),
+    )
+
+    governed_rows = []
+    if not governed_df.empty:
+        for _, row in governed_df.iterrows():
+            governed_rows.append(
+                {
+                    "label": "Governed Observation",
+                    "observation_id": int(row["observation_id"]),
+                    "observation_text": str(row["observation_text"]).strip() if pd.notna(row["observation_text"]) else "",
+                    "observation_category": str(row["observation_category"]).strip() if pd.notna(row["observation_category"]) else "",
+                    "evidence_item_id": int(row["evidence_item_id"]),
+                    "evidence_title": str(row["evidence_title"]).strip() if pd.notna(row["evidence_title"]) else "",
+                    "analyst_confidence": str(row["analyst_confidence"]).strip() if pd.notna(row["analyst_confidence"]) else "",
+                }
+            )
+
+    supporting_df = fetch_dataframe(
+        """
+        SELECT
+            id AS evidence_item_id,
+            title,
+            source_name,
+            source_publisher,
+            publication_date,
+            source_text,
+            evidence_grade,
+            url_or_citation
+        FROM evidence_items
+        WHERE thesis_id = ?
+          AND related_pillar = ?
+        ORDER BY
+            CASE WHEN publication_date IS NULL OR TRIM(publication_date) = '' THEN 1 ELSE 0 END ASC,
+            publication_date ASC,
+            evidence_item_id ASC
+        """,
+        (thesis_id_value, pillar_id_value),
+    )
+
+    supporting_rows = []
+    if not supporting_df.empty:
+        for _, row in supporting_df.iterrows():
+            supporting_rows.append(
+                {
+                    "evidence_item_id": int(row["evidence_item_id"]),
+                    "publication_date": str(row["publication_date"]).strip() if pd.notna(row["publication_date"]) else "",
+                    "source_name": str(row["source_name"]).strip() if pd.notna(row["source_name"]) else "",
+                    "title": str(row["title"]).strip() if pd.notna(row["title"]) else "",
+                    "source_publisher": str(row["source_publisher"]).strip() if pd.notna(row["source_publisher"]) else "",
+                    "evidence_grade": str(row["evidence_grade"]).strip() if pd.notna(row["evidence_grade"]) else "",
+                    "url_or_citation": str(row["url_or_citation"]).strip() if pd.notna(row["url_or_citation"]) else "",
+                }
+            )
+
+    advisory_rows = []
+
+    def _is_pillar_signal_relevant(pillar_signal_value: str) -> bool:
+        signal_value = str(pillar_signal_value).strip().lower() if pillar_signal_value is not None else ""
+        if not signal_value:
+            return False
+        return any(
+            token and token in signal_value
+            for token in [
+                pillar_id_value.lower(),
+                pillar_labels.get(pillar_id_value, "").lower(),
+            ]
+        )
+
+    minimum_governed_for_sufficiency = 2
+    eligible_supporting_df = supporting_df[
+        supporting_df["source_text"].notna() & (supporting_df["source_text"].astype(str).str.strip() != "")
+    ]
+    if len(governed_rows) < minimum_governed_for_sufficiency and not eligible_supporting_df.empty:
+        advisory_candidates = []
+        for _, evidence_row in eligible_supporting_df.iterrows():
+            evidence_id_value = int(evidence_row["evidence_item_id"])
+            evidence_title_value = str(evidence_row["title"]).strip() if pd.notna(evidence_row["title"]) else ""
+            publication_date_value = str(evidence_row["publication_date"]).strip() if pd.notna(evidence_row["publication_date"]) else ""
+
+            extraction_result = get_extraction_suggestions(evidence_item_id=evidence_id_value)
+            suggestions = extraction_result.get("suggestions", []) if isinstance(extraction_result, dict) else []
+
+            for suggestion in suggestions:
+                pillar_signal_value = str(suggestion.get("pillar_signal", "")).strip()
+                if not _is_pillar_signal_relevant(pillar_signal_value):
+                    continue
+
+                advisory_candidates.append(
+                    (
+                        publication_date_value,
+                        str(suggestion.get("source_location", "")).strip(),
+                        {
+                            "label": "Advisory Extraction Signal",
+                            "passage": str(suggestion.get("passage", "")).strip(),
+                            "pillar_signal": pillar_signal_value,
+                            "confidence": str(suggestion.get("confidence", "")).strip(),
+                            "source_location": str(suggestion.get("source_location", "")).strip(),
+                            "evidence_item_id": evidence_id_value,
+                            "evidence_title": evidence_title_value,
+                        },
+                    )
+                )
+
+        advisory_candidates.sort(key=lambda item: (item[0], item[1]))
+        advisory_rows = [item[2] for item in advisory_candidates]
+
+    response["governed_observations"] = governed_rows
+    response["advisory_signals"] = advisory_rows
+    response["supporting_evidence"] = supporting_rows
+    response["coverage"] = {
+        "governed_observation_count": len(governed_rows),
+        "advisory_signal_count": len(advisory_rows),
+        "evidence_item_count": len(supporting_rows),
+    }
+    return response
+
+
 def get_athena_prebrief(thesis_id) -> dict:
     """
     Read-only orchestration service.
