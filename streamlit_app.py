@@ -728,6 +728,360 @@ def summary_field(label, value):
     st.write(f"**{label}:** {value}")
 
 
+ASSESSMENT_WORKSPACE_PILLARS = [
+    {"id": "B1", "name": "Business Quality", "domain": "Business Understanding"},
+    {"id": "B2", "name": "Competitive Advantage", "domain": "Business Understanding"},
+    {"id": "B3", "name": "Revenue Quality", "domain": "Business Understanding"},
+    {"id": "B4", "name": "Financial Resilience", "domain": "Business Understanding"},
+    {"id": "B5", "name": "Execution Capability", "domain": "Business Understanding"},
+    {"id": "B6", "name": "Industry Position", "domain": "Business Understanding"},
+    {"id": "B7", "name": "Systems Importance", "domain": "Business Understanding"},
+    {"id": "I1", "name": "Valuation", "domain": "Financial Assessment"},
+    {"id": "I2", "name": "Market Structure", "domain": "Financial Assessment"},
+    {"id": "I3", "name": "Market Sentiment", "domain": "Financial Assessment"},
+    {"id": "I4", "name": "Portfolio Contribution", "domain": "Financial Assessment"},
+]
+
+ASSESSMENT_WORKSPACE_PILLAR_MAP = {
+    pillar["id"]: pillar for pillar in ASSESSMENT_WORKSPACE_PILLARS
+}
+
+BUSINESS_PILLAR_GUIDANCE = {
+    "B1": "A high gross margin score should reflect durability and trend direction, not just the current level — a declining margin at 70% may score lower than a stable margin at 45%.",
+    "B2": "Score the structural barrier, not the product — ask how long a well-funded competitor would need to replicate the company's market position, not whether the product is good.",
+    "B3": "Prioritize recurring, contracted, or subscription revenue over transactional revenue — evaluate what percentage of next year's revenue is already secured.",
+    "B4": "Financial resilience should account for non-linearity: unusually high cash positions relative to revenue may indicate inefficient capital allocation rather than strength.",
+    "B5": "Score against stated commitments, not absolute performance — a company that consistently delivers 90% of guidance scores higher than one that occasionally delivers 120% unpredictably.",
+    "B6": "A dominant position in a declining industry is not the same as a strong position in a growing one — the score should reflect both current standing and structural trajectory.",
+    "B7": "Systems importance should account for dependency quality: reliance on a single government program or contract should not automatically receive a high score.",
+}
+
+
+def _get_judgment_default(existing_record):
+    """Prefer governed judgment, then fall back to legacy inference text."""
+    if existing_record is None:
+        return ""
+    if "judgment" in existing_record.index and pd.notna(existing_record["judgment"]):
+        value = str(existing_record["judgment"]).strip()
+        if value:
+            return value
+    if "inference" in existing_record.index and pd.notna(existing_record["inference"]):
+        value = str(existing_record["inference"]).strip()
+        if value:
+            return value
+    return ""
+
+
+def _get_workspace_stage(business_rows, investment_rows, gate_ready):
+    """Summarize the current governed workflow stage."""
+    if business_rows < 7:
+        return "Business Assessment"
+    if investment_rows < 4:
+        return "Financial Assessment"
+    if gate_ready:
+        return "Decision Recording"
+    return "Assessment Completion"
+
+
+def _build_assessment_workspace_context(thesis_id, pillar_id):
+    """Assemble promoted evidence and observation context for one pillar."""
+    if pillar_id.startswith("B"):
+        synthesis = get_athena_evidence_synthesis(thesis_id=thesis_id, pillar_id=pillar_id)
+        return {
+            "governed_observations": synthesis.get("governed_observations", []),
+            "advisory_signals": synthesis.get("advisory_signals", []),
+            "supporting_evidence": synthesis.get("supporting_evidence", []),
+            "coverage": synthesis.get("coverage", {}),
+        }
+
+    observations_df = get_observations_for_pillar(thesis_id=thesis_id, pillar_id=pillar_id)
+    governed_observations = observations_df.to_dict("records") if not observations_df.empty else []
+    supporting_df = fetch_dataframe(
+        """
+        SELECT DISTINCT
+            ei.id AS evidence_item_id,
+            ei.publication_date,
+            ei.source_name,
+            ei.title,
+            ei.source_publisher,
+            ei.evidence_grade,
+            ei.url_or_citation
+        FROM evidence_items ei
+        LEFT JOIN pillar_evidence_links pel ON pel.evidence_item_id = ei.id
+        LEFT JOIN pillar_scores ps ON ps.id = pel.pillar_score_id
+        WHERE ei.thesis_id = ?
+          AND (
+              ei.related_pillar = ?
+              OR (ps.thesis_id = ? AND ps.pillar_id = ?)
+          )
+        ORDER BY
+            CASE WHEN ei.publication_date IS NULL OR TRIM(ei.publication_date) = '' THEN 1 ELSE 0 END ASC,
+            ei.publication_date ASC,
+            ei.id ASC
+        """,
+        (thesis_id, pillar_id, thesis_id, pillar_id),
+    )
+    supporting_evidence = supporting_df.to_dict("records") if not supporting_df.empty else []
+    return {
+        "governed_observations": governed_observations,
+        "advisory_signals": [],
+        "supporting_evidence": supporting_evidence,
+        "coverage": {
+            "governed_observation_count": len(governed_observations),
+            "advisory_signal_count": 0,
+            "evidence_item_count": len(supporting_evidence),
+        },
+    }
+
+
+def render_assessment_workspace(thesis_id, thesis, default_validation_review_date):
+    """Preferred continuous assessment workflow reusing governed persistence."""
+    section_header("Assessment Workspace")
+
+    pillar_labels = [f"{pillar['id']} {pillar['name']}" for pillar in ASSESSMENT_WORKSPACE_PILLARS]
+    selected_label = st.selectbox(
+        "Assessment Focus",
+        options=pillar_labels,
+        key=f"assessment_workspace_focus_{thesis_id}",
+    )
+    pillar_id, pillar_name = selected_label.split(" ", 1)
+    pillar_meta = ASSESSMENT_WORKSPACE_PILLAR_MAP[pillar_id]
+
+    existing_df = fetch_dataframe(
+        "SELECT * FROM pillar_scores WHERE thesis_id = ? AND pillar_id = ?",
+        (thesis_id, pillar_id),
+    )
+    existing_record = existing_df.iloc[0] if not existing_df.empty else None
+    pillar_score_id = int(existing_record["id"]) if existing_record is not None and pd.notna(existing_record["id"]) else None
+
+    available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
+    linked_evidence_defaults = get_linked_evidence_ids(pillar_score_id) if pillar_score_id is not None else []
+    context = _build_assessment_workspace_context(thesis_id, pillar_id)
+    gate_result = validate_decision_gate(thesis_id)
+
+    progress_df = fetch_dataframe(
+        """
+        SELECT
+            SUM(CASE WHEN pillar_id LIKE 'B%' THEN 1 ELSE 0 END) AS business_rows,
+            SUM(CASE WHEN pillar_id LIKE 'I%' THEN 1 ELSE 0 END) AS investment_rows
+        FROM pillar_scores
+        WHERE thesis_id = ?
+        """,
+        (thesis_id,),
+    )
+    progress_row = progress_df.iloc[0] if not progress_df.empty else None
+    business_rows = int(progress_row["business_rows"]) if progress_row is not None and pd.notna(progress_row["business_rows"]) else 0
+    investment_rows = int(progress_row["investment_rows"]) if progress_row is not None and pd.notna(progress_row["investment_rows"]) else 0
+
+    left_col, right_col = st.columns([3, 1])
+
+    with right_col:
+        st.subheader("Progress")
+        st.metric("Completed Pillars", f"{gate_result['completed']} / {gate_result['required']}")
+        st.metric("Remaining Pillars", gate_result["required"] - gate_result["completed"])
+        st.metric("Decision Readiness", "Ready" if gate_result["eligible"] else "Blocked")
+        st.caption(f"Current Workflow Stage: {_get_workspace_stage(business_rows, investment_rows, gate_result['eligible'])}")
+        if gate_result["missing"]:
+            with st.expander("Remaining Requirements"):
+                for item in gate_result["missing"]:
+                    st.write(f"- {item['pillar_id']} — {item['label']}")
+
+    with left_col:
+        st.subheader(pillar_meta["domain"])
+        st.caption(f"Focused Pillar: {pillar_id} — {pillar_name}")
+        if pillar_id in BUSINESS_PILLAR_GUIDANCE:
+            st.info(BUSINESS_PILLAR_GUIDANCE[pillar_id])
+
+        st.markdown("**Evidence Context**")
+        supporting_rows = context["supporting_evidence"]
+        if supporting_rows:
+            supporting_df = pd.DataFrame(supporting_rows)
+            visible_columns = [
+                column for column in [
+                    "evidence_item_id",
+                    "publication_date",
+                    "title",
+                    "source_name",
+                    "source_publisher",
+                    "evidence_grade",
+                ] if column in supporting_df.columns
+            ]
+            st.dataframe(supporting_df[visible_columns], use_container_width=True)
+        else:
+            st.caption("No promoted evidence currently surfaced for this pillar.")
+
+        observation_rows = context["governed_observations"]
+        st.markdown("**Relevant Observations**")
+        if observation_rows:
+            observation_df = pd.DataFrame(observation_rows)
+            visible_columns = [
+                column for column in [
+                    "observation_id",
+                    "observation_category",
+                    "observation_text",
+                    "analyst_confidence",
+                    "evidence_item_id",
+                    "evidence_title",
+                ] if column in observation_df.columns
+            ]
+            st.dataframe(observation_df[visible_columns], use_container_width=True)
+        else:
+            st.caption("No governed observations currently surfaced for this pillar.")
+
+        advisory_rows = context["advisory_signals"]
+        if advisory_rows:
+            st.markdown("**Theia Context**")
+            advisory_df = pd.DataFrame(advisory_rows)
+            visible_columns = [
+                column for column in [
+                    "evidence_title",
+                    "passage",
+                    "pillar_signal",
+                    "confidence",
+                    "source_location",
+                ] if column in advisory_df.columns
+            ]
+            st.dataframe(advisory_df[visible_columns], use_container_width=True)
+
+        st.markdown("**Business Narrative**")
+        st.text_area(
+            "Reasoning Draft",
+            key=f"assessment_workspace_reasoning_{thesis_id}_{pillar_id}",
+            placeholder="Draft your reasoning here. This remains working context until governed fields are approved.",
+            height=120,
+        )
+
+        st.subheader("Governed Assessment")
+        score_key = f"assessment_workspace_score_{thesis_id}_{pillar_id}"
+        rag_key = f"assessment_workspace_rag_{thesis_id}_{pillar_id}"
+        grade_key = f"assessment_workspace_grade_{thesis_id}_{pillar_id}"
+        confidence_key = f"assessment_workspace_confidence_{thesis_id}_{pillar_id}"
+        sources_key = f"assessment_workspace_sources_{thesis_id}_{pillar_id}"
+        judgment_key = f"assessment_workspace_judgment_{thesis_id}_{pillar_id}"
+        falsification_key = f"assessment_workspace_falsification_{thesis_id}_{pillar_id}"
+        reviewer_key = f"assessment_workspace_reviewer_{thesis_id}_{pillar_id}"
+        notes_key = f"assessment_workspace_notes_{thesis_id}_{pillar_id}"
+        linked_key = f"assessment_workspace_links_{thesis_id}_{pillar_id}"
+        drl_key = f"assessment_workspace_drl_{thesis_id}_{pillar_id}"
+        review_date_key = f"assessment_workspace_review_date_{thesis_id}_{pillar_id}"
+
+        st.session_state.setdefault(score_key, int(existing_record["score"]) if existing_record is not None and pd.notna(existing_record["score"]) else 5)
+        default_rag_options = [RAG_GREEN, RAG_YELLOW, RAG_ORANGE, RAG_RED] if pillar_id.startswith("B") else ["", RAG_GREEN, RAG_YELLOW, RAG_ORANGE, RAG_RED]
+        default_rag_value = existing_record["rag_status"] if existing_record is not None and pd.notna(existing_record["rag_status"]) else default_rag_options[0]
+        if default_rag_value not in default_rag_options:
+            default_rag_value = default_rag_options[0]
+        st.session_state.setdefault(rag_key, default_rag_value)
+        default_grade_options = [GRADE_A, GRADE_B, GRADE_C, GRADE_D] if pillar_id.startswith("B") else ["", GRADE_A, GRADE_B, GRADE_C, GRADE_D]
+        default_grade_value = existing_record["evidence_grade"] if existing_record is not None and pd.notna(existing_record["evidence_grade"]) else default_grade_options[0]
+        if default_grade_value not in default_grade_options:
+            default_grade_value = default_grade_options[0]
+        st.session_state.setdefault(grade_key, default_grade_value)
+        st.session_state.setdefault(confidence_key, existing_record["confidence_basis"] if existing_record is not None and pd.notna(existing_record["confidence_basis"]) else "")
+        st.session_state.setdefault(sources_key, existing_record["primary_sources"] if existing_record is not None and pd.notna(existing_record["primary_sources"]) else "")
+        st.session_state.setdefault(judgment_key, _get_judgment_default(existing_record))
+        st.session_state.setdefault(falsification_key, existing_record["falsification_trigger"] if existing_record is not None and pd.notna(existing_record["falsification_trigger"]) else "")
+        st.session_state.setdefault(reviewer_key, existing_record["reviewer"] if existing_record is not None and pd.notna(existing_record["reviewer"]) else (thesis["reviewer"] if thesis["reviewer"] else ""))
+        st.session_state.setdefault(notes_key, "")
+        st.session_state.setdefault(linked_key, linked_evidence_defaults)
+        drl_options = [""] + list(range(1, 10))
+        default_drl = existing_record["drl"] if existing_record is not None and pd.notna(existing_record["drl"]) else ""
+        if default_drl not in drl_options:
+            default_drl = ""
+        st.session_state.setdefault(drl_key, default_drl)
+        st.session_state.setdefault(review_date_key, pd.to_datetime(existing_record["review_date"]).date() if existing_record is not None and pd.notna(existing_record["review_date"]) else default_validation_review_date)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            score = st.number_input("Score (1-10)", min_value=1, max_value=10, key=score_key)
+        with col2:
+            rag_status = st.selectbox("RAG Status", default_rag_options, key=rag_key)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            evidence_grade = st.selectbox("Evidence Grade", default_grade_options, key=grade_key)
+        with col2:
+            confidence_label = "Confidence Basis (why you trust or distrust this judgment)" if pillar_id.startswith("B") else "Confidence Basis *"
+            confidence_basis = st.text_input(confidence_label, key=confidence_key)
+
+        if not pillar_id.startswith("B"):
+            primary_sources = st.text_input("Primary Sources", key=sources_key)
+        else:
+            primary_sources = None
+
+        selected_evidence_links = st.multiselect(
+            "Linked Evidence Items",
+            options=available_evidence_ids,
+            format_func=lambda evidence_id: available_evidence_labels.get(evidence_id, f"#{evidence_id}"),
+            key=linked_key,
+            help="Link one or more evidence items to this governed pillar assessment.",
+        )
+        judgment = st.text_area("Judgment", key=judgment_key, height=100)
+        falsification_label = "Falsification Trigger" if pillar_id.startswith("B") else "Falsification Trigger *"
+        falsification_trigger = st.text_input(falsification_label, key=falsification_key)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            reviewer = st.text_input("Reviewer", key=reviewer_key)
+        with col2:
+            review_date = st.date_input("Review Date", key=review_date_key)
+
+        if not pillar_id.startswith("B"):
+            drl = st.selectbox("DRL", drl_options, key=drl_key)
+        else:
+            drl = None
+
+        if st.button("Save Governed Assessment", use_container_width=True, key=f"assessment_workspace_save_{thesis_id}_{pillar_id}"):
+            if pillar_id.startswith("I") and not confidence_basis.strip():
+                st.error("Confidence Basis is required.")
+            elif pillar_id.startswith("I") and not judgment.strip():
+                st.error("Judgment is required.")
+            elif pillar_id.startswith("I") and not falsification_trigger.strip():
+                st.error("Falsification Trigger is required.")
+            else:
+                created_by = reviewer.strip() if reviewer and reviewer.strip() else (thesis["reviewer"] if thesis["reviewer"] else "System")
+                pillar_result = save_pillar_score(
+                    thesis_id=thesis_id,
+                    pillar_id=pillar_id,
+                    pillar_name=pillar_name,
+                    score=score,
+                    rag_status=rag_status,
+                    evidence_grade=evidence_grade,
+                    judgment=judgment,
+                    confidence_basis=confidence_basis,
+                    falsification_trigger=falsification_trigger,
+                    reviewer=reviewer,
+                    review_date=review_date,
+                    created_by=created_by,
+                    primary_sources=primary_sources,
+                    drl=drl,
+                )
+                resolved_pillar_score_id = pillar_result["pillar_score_id"]
+
+                if pillar_result["is_update"]:
+                    st.success(f"✓ Assessment updated for {pillar_id} {pillar_name}")
+                else:
+                    st.success(f"✓ Assessment saved for {pillar_id} {pillar_name}")
+
+                if resolved_pillar_score_id is None:
+                    st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
+                else:
+                    sync_pillar_evidence_links(
+                        pillar_score_id=resolved_pillar_score_id,
+                        selected_evidence_ids=selected_evidence_links,
+                        created_by=created_by,
+                    )
+                st.rerun()
+
+        st.subheader("Notes")
+        st.text_area(
+            "Analyst Working Notes",
+            key=notes_key,
+            placeholder="Draft notes remain working context until governed fields are approved.",
+            height=120,
+        )
+        st.caption("Draft notes are session-scoped working context and do not modify governed persistence until you save the governed assessment.")
+
+
 def _derive_lifecycle_status(complete_condition, current_condition):
     """Map deterministic lifecycle state to complete/current/pending."""
     if complete_condition:
@@ -2191,9 +2545,10 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         st.divider()
         
         # Tabs
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs(
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(
             [
                 "Overview",
+            "Assessment Workspace",
                 "Evidence",
                 "Business Quality",
                 "Industry",
@@ -2239,8 +2594,11 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 )
                 raise
             render_thesis_overview(thesis_overview_vm)
-        
+
         with tab2:
+            render_assessment_workspace(thesis_id, thesis, default_validation_review_date)
+        
+        with tab3:
             # Add Evidence Item Form
             section_header("Add Evidence Item")
             
@@ -3178,7 +3536,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 else:
                     st.dataframe(observations_for_pillar_df, use_container_width=True)
         
-        with tab3:
+        with tab4:
             section_header("Business Quality Scoring")
 
             coverage = get_business_evidence_coverage(thesis_id)
@@ -3467,10 +3825,10 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             else:
                 empty_state("No business assessment scores have been added for this thesis yet.")
         
-        with tab4:
+        with tab5:
             empty_state("Industry Module Coming Next")
 
-        with tab5:
+        with tab6:
             # Add Investment Assessment Form
             section_header("Add Investment Assessment")
 
@@ -3497,17 +3855,44 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     existing_record = existing_df.iloc[0]
                     existing_pillar_score_id = int(existing_record['id']) if pd.notna(existing_record['id']) else None
 
-            available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
-            linked_evidence_defaults = []
-            if existing_pillar_score_id is not None:
-                linked_evidence_defaults = get_linked_evidence_ids(existing_pillar_score_id)
-
             investment_judgment_default = ""
             if existing_record is not None:
                 if 'judgment' in existing_record.index and pd.notna(existing_record['judgment']) and str(existing_record['judgment']).strip() != "":
                     investment_judgment_default = str(existing_record['judgment'])
                 elif pd.notna(existing_record['inference']) and str(existing_record['inference']).strip() != "":
                     investment_judgment_default = str(existing_record['inference'])
+
+            record_signature = (
+                selected_pillar,
+                None if existing_record is None else existing_record.get('confidence_basis'),
+                None if existing_record is None else existing_record.get('primary_sources'),
+                None if existing_record is None else existing_record.get('judgment'),
+                None if existing_record is None else existing_record.get('inference'),
+                None if existing_record is None else existing_record.get('falsification_trigger'),
+                None if existing_record is None else existing_record.get('reviewer'),
+                None if existing_record is None else existing_record.get('review_date'),
+                None if existing_record is None else existing_record.get('drl'),
+                None if existing_record is None else existing_record.get('score'),
+                None if existing_record is None else existing_record.get('rag_status'),
+                None if existing_record is None else existing_record.get('evidence_grade'),
+            )
+            if st.session_state.get("invest_record_signature") != record_signature:
+                st.session_state["invest_record_signature"] = record_signature
+                st.session_state["invest_score"] = int(existing_record['score']) if existing_record is not None and pd.notna(existing_record['score']) else 5
+                st.session_state["invest_rag"] = existing_record['rag_status'] if existing_record is not None and pd.notna(existing_record['rag_status']) else ""
+                st.session_state["invest_grade"] = existing_record['evidence_grade'] if existing_record is not None and pd.notna(existing_record['evidence_grade']) else ""
+                st.session_state["invest_conf_basis"] = existing_record['confidence_basis'] if existing_record is not None and pd.notna(existing_record['confidence_basis']) else ""
+                st.session_state["invest_sources"] = existing_record['primary_sources'] if existing_record is not None and pd.notna(existing_record['primary_sources']) else ""
+                st.session_state["invest_judgment"] = investment_judgment_default
+                st.session_state["invest_fals"] = existing_record['falsification_trigger'] if existing_record is not None and pd.notna(existing_record['falsification_trigger']) else ""
+                st.session_state["invest_reviewer"] = existing_record['reviewer'] if existing_record is not None and pd.notna(existing_record['reviewer']) else ""
+                st.session_state["invest_date"] = pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else default_validation_review_date
+                st.session_state["invest_drl"] = existing_record['drl'] if existing_record is not None and pd.notna(existing_record['drl']) else ""
+
+            available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
+            linked_evidence_defaults = []
+            if existing_pillar_score_id is not None:
+                linked_evidence_defaults = get_linked_evidence_ids(existing_pillar_score_id)
 
             with st.form("investment_assessment_form"):
                 col1, col2 = st.columns(2)
@@ -3716,13 +4101,13 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             else:
                 empty_state("No investment assessment scores have been added for this thesis yet.")
 
-        with tab6:
+        with tab7:
             empty_state("Management Module Coming Next")
 
-        with tab7:
+        with tab8:
             empty_state("Valuation Module Coming Next")
         
-        with tab8:
+        with tab9:
             section_header("Historical Validation / Thesis Review")
 
             decision_context_df = fetch_dataframe(
@@ -3904,7 +4289,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 else:
                     empty_state("No thesis reviews have been recorded for this thesis yet.")
 
-        with tab9:
+        with tab10:
             gate_result = validate_decision_gate(thesis_id)
 
             section_header("Themis Constitutional Validation")
@@ -4044,7 +4429,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             else:
                 empty_state("No decision has been recorded for this thesis yet.")
         
-        with tab10:
+        with tab11:
             # Audit Trail
             section_header("Audit Trail")
             
