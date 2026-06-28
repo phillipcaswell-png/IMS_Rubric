@@ -30,6 +30,10 @@ class EvaluationEngineTests(unittest.TestCase):
         self.assertIsInstance(result["candidate_count"], int)
         self.assertIsInstance(result["candidate_documents"], list)
         self.assertIsInstance(result["discovery_warnings"], list)
+        self.assertIn(result["acquisition_status"], ["acquired", "unavailable", "failed", "pending", "not_attempted"])
+        self.assertIsInstance(result["acquired_document_count"], int)
+        self.assertIsInstance(result["acquired_documents"], list)
+        self.assertIsInstance(result["acquisition_warnings"], list)
         self.assertEqual(result["preparation_action"], "created")
         self.assertEqual(result["thesis_action"], "created")
         self.assertIsInstance(result["preparation_id"], int)
@@ -49,6 +53,10 @@ class EvaluationEngineTests(unittest.TestCase):
                     "candidate_count",
                     "candidate_documents",
                     "discovery_warnings",
+                    "acquisition_status",
+                    "acquired_document_count",
+                    "acquired_documents",
+                    "acquisition_warnings",
                     "preparation_action",
                     "thesis_action",
                     "warnings",
@@ -133,6 +141,77 @@ class EvaluationEngineTests(unittest.TestCase):
         self.assertEqual(first["candidate_count"], 1)
         self.assertEqual(second["candidate_count"], 1)
         self.assertEqual(second["candidate_documents"][0]["reference_id"], "ACC-1")
+        self.assertGreaterEqual(len(second["acquired_documents"]), 1)
+        self.assertEqual(second["acquired_documents"][0]["original_candidate_identifier"], "ACC-1")
+
+    def test_prepare_evaluation_skips_acquisition_when_discovery_has_no_candidates(self):
+        class UnavailableProvider:
+            provider_name = "Unavailable"
+
+            def discover(self, ticker, observation_date):
+                return {
+                    "provider_name": self.provider_name,
+                    "status": "unavailable",
+                    "candidates": [],
+                    "warnings": ["No candidates available."],
+                }
+
+        result = evaluation_engine.prepare_evaluation(
+            "IBM",
+            "2000-01-01",
+            discovery_providers=[UnavailableProvider()],
+        )
+
+        self.assertEqual(result["evidence_discovery_status"], "unavailable")
+        self.assertEqual(result["acquisition_status"], "not_attempted")
+        self.assertEqual(result["acquired_document_count"], 0)
+        self.assertEqual(result["acquired_documents"], [])
+
+    def test_prepare_evaluation_acquisition_failure_does_not_block_workspace(self):
+        class StaticProvider:
+            provider_name = "Static Provider"
+
+            def discover(self, ticker, observation_date):
+                return {
+                    "provider_name": self.provider_name,
+                    "status": "discovered",
+                    "candidates": [
+                        {
+                            "title": "10-K",
+                            "source": "SEC",
+                            "document_type": "10-K",
+                            "publication_date": "2000-01-01",
+                            "reference_url": "https://example.test/10k",
+                            "reference_id": "ACC-9",
+                            "discovery_status": "candidate",
+                            "warnings": [],
+                        }
+                    ],
+                    "warnings": [],
+                }
+
+        class BrokenAcquisitionProvider:
+            provider_name = "Broken Acquisition"
+
+            def supports(self, candidate):
+                return True
+
+            def acquire(self, candidate):
+                raise RuntimeError("source retrieval unavailable")
+
+        result = evaluation_engine.prepare_evaluation(
+            "IBM",
+            "2000-01-01",
+            discovery_providers=[StaticProvider()],
+            acquisition_providers=[BrokenAcquisitionProvider()],
+        )
+
+        self.assertEqual(result["lifecycle_state"], evaluation_engine.LIFECYCLE_READY_FOR_ANALYST)
+        self.assertTrue(result["workspace_ready"])
+        self.assertEqual(result["acquisition_status"], "failed")
+        self.assertEqual(result["acquired_document_count"], 0)
+        self.assertGreaterEqual(len(result["acquired_documents"]), 1)
+        self.assertTrue(any("Provider failure" in item.get("acquisition_error", "") for item in result["acquired_documents"]))
 
     def test_prepare_evaluation_discovery_failure_does_not_block_workspace(self):
         class BrokenProvider:

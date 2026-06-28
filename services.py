@@ -81,6 +81,9 @@ def init_db():
             evidence_discovery_status TEXT DEFAULT 'pending',
             candidate_count INTEGER DEFAULT 0,
             discovery_warnings_json TEXT,
+            evidence_acquisition_status TEXT DEFAULT 'pending',
+            acquired_document_count INTEGER DEFAULT 0,
+            acquisition_warnings_json TEXT,
             warnings_json TEXT,
             errors_json TEXT,
             status_json TEXT,
@@ -107,6 +110,21 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN evidence_acquisition_status TEXT DEFAULT 'pending'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN acquired_document_count INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN acquisition_warnings_json TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS evaluation_candidate_documents (
@@ -124,6 +142,37 @@ def init_db():
             warnings_json TEXT,
             created_at TEXT NOT NULL,
             UNIQUE(preparation_id, provider_name, reference_id, title),
+            FOREIGN KEY (preparation_id) REFERENCES evaluation_preparations(id),
+            FOREIGN KEY (thesis_id) REFERENCES theses(id)
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evaluation_acquired_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            preparation_id INTEGER NOT NULL,
+            thesis_id INTEGER,
+            title TEXT,
+            source TEXT,
+            document_type TEXT,
+            publication_date TEXT,
+            reference_url TEXT,
+            reference_id TEXT,
+            provider_name TEXT,
+            discovery_provider TEXT,
+            discovery_source TEXT,
+            original_candidate_identifier TEXT,
+            acquisition_status TEXT,
+            retrieval_timestamp TEXT,
+            source_reference TEXT,
+            content_type TEXT,
+            source_content TEXT,
+            acquisition_error TEXT,
+            warnings_json TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(preparation_id, provider_name, original_candidate_identifier, reference_url),
             FOREIGN KEY (preparation_id) REFERENCES evaluation_preparations(id),
             FOREIGN KEY (thesis_id) REFERENCES theses(id)
         )
@@ -678,6 +727,45 @@ def get_candidate_evidence_for_thesis(thesis_id):
             LIMIT 1
         ) latest_prep ON latest_prep.id = ecd.preparation_id
         ORDER BY ecd.created_at DESC, ecd.id DESC
+        """,
+        (int(thesis_id),),
+    )
+
+
+def get_acquired_source_material_for_thesis(thesis_id):
+    """Return the most recent acquired source-material records for a thesis."""
+    return fetch_dataframe(
+        """
+        SELECT
+            ead.id,
+            ead.preparation_id,
+            ead.thesis_id,
+            ead.title,
+            ead.source,
+            ead.document_type,
+            ead.publication_date,
+            ead.reference_url,
+            ead.reference_id,
+            ead.provider_name,
+            ead.discovery_provider,
+            ead.discovery_source,
+            ead.original_candidate_identifier,
+            ead.acquisition_status,
+            ead.retrieval_timestamp,
+            ead.source_reference,
+            ead.content_type,
+            ead.acquisition_error,
+            ead.warnings_json,
+            ead.created_at
+        FROM evaluation_acquired_documents ead
+        JOIN (
+            SELECT id
+            FROM evaluation_preparations
+            WHERE thesis_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+        ) latest_prep ON latest_prep.id = ead.preparation_id
+        ORDER BY ead.created_at DESC, ead.id DESC
         """,
         (int(thesis_id),),
     )

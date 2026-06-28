@@ -14,6 +14,7 @@ from services import (
     get_overview_metrics,
     get_business_evidence_coverage,
     get_candidate_evidence_for_thesis,
+    get_acquired_source_material_for_thesis,
     get_available_evidence_items,
     get_observations_for_evidence,
     get_observations_for_pillar,
@@ -477,6 +478,9 @@ def render_preparation_status(status_obj):
     evidence_discovery_status = str(status_obj.get("evidence_discovery_status", "pending")).strip()
     candidate_count = int(status_obj.get("candidate_count", 0) or 0)
     discovery_warnings = status_obj.get("discovery_warnings", []) or []
+    acquisition_status = str(status_obj.get("acquisition_status", "pending")).strip()
+    acquired_document_count = int(status_obj.get("acquired_document_count", 0) or 0)
+    acquisition_warnings = status_obj.get("acquisition_warnings", []) or []
     workspace_ready = bool(status_obj.get("workspace_ready"))
     warnings = status_obj.get("warnings", []) or []
     errors = status_obj.get("errors", []) or []
@@ -517,8 +521,22 @@ def render_preparation_status(status_obj):
     else:
         lines.append("… Candidate Evidence Discovery Pending")
 
+    if acquisition_status == "acquired":
+        lines.append(f"✓ Source Material Acquired ({acquired_document_count})")
+    elif acquisition_status == "unavailable":
+        lines.append("⚠ Source Material Acquisition Unavailable")
+    elif acquisition_status == "failed":
+        lines.append("⚠ Source Material Acquisition Failed")
+    elif acquisition_status == "not_attempted":
+        lines.append("… Source Material Acquisition Not Attempted")
+    else:
+        lines.append("… Source Material Acquisition Pending")
+
     for discovery_warning in discovery_warnings:
         lines.append(f"⚠ {discovery_warning}")
+
+    for acquisition_warning in acquisition_warnings:
+        lines.append(f"⚠ {acquisition_warning}")
 
     for warning_text in warnings:
         lines.append(f"⚠ {warning_text}")
@@ -929,9 +947,16 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
     linked_evidence_defaults = get_linked_evidence_ids(pillar_score_id) if pillar_score_id is not None else []
     context = _build_assessment_workspace_context(thesis_id, pillar_id)
     candidate_df = get_candidate_evidence_for_thesis(thesis_id)
+    acquired_df = get_acquired_source_material_for_thesis(thesis_id)
     preparation_df = fetch_dataframe(
         """
-        SELECT evidence_discovery_status, candidate_count, discovery_warnings_json
+        SELECT
+            evidence_discovery_status,
+            candidate_count,
+            discovery_warnings_json,
+            evidence_acquisition_status,
+            acquired_document_count,
+            acquisition_warnings_json
         FROM evaluation_preparations
         WHERE thesis_id = ?
         ORDER BY updated_at DESC, id DESC
@@ -941,6 +966,8 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
     )
     evidence_discovery_status = "pending"
     discovery_warnings = []
+    evidence_acquisition_status = "pending"
+    acquisition_warnings = []
     if not preparation_df.empty:
         prep_row = preparation_df.iloc[0]
         if pd.notna(prep_row["evidence_discovery_status"]) and str(prep_row["evidence_discovery_status"]).strip():
@@ -952,6 +979,15 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
                     discovery_warnings = []
             except (ValueError, TypeError):
                 discovery_warnings = []
+        if pd.notna(prep_row["evidence_acquisition_status"]) and str(prep_row["evidence_acquisition_status"]).strip():
+            evidence_acquisition_status = str(prep_row["evidence_acquisition_status"]).strip()
+        if pd.notna(prep_row["acquisition_warnings_json"]) and str(prep_row["acquisition_warnings_json"]).strip():
+            try:
+                acquisition_warnings = json.loads(str(prep_row["acquisition_warnings_json"]))
+                if not isinstance(acquisition_warnings, list):
+                    acquisition_warnings = []
+            except (ValueError, TypeError):
+                acquisition_warnings = []
     gate_result = validate_decision_gate(thesis_id)
 
     progress_df = fetch_dataframe(
@@ -1020,6 +1056,45 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
                 st.caption("Candidate discovery failed during preparation. You can continue governed review.")
             else:
                 st.caption("Candidate discovery has not yet produced documents for this thesis.")
+
+        st.markdown("**Acquired Source Material**")
+        st.caption("Acquired source material only. These records are retrieval-stage artifacts and are not extracted observations or governed evidence.")
+        st.caption(f"Acquisition Status: {evidence_acquisition_status}")
+        if acquisition_warnings:
+            for warning in acquisition_warnings:
+                st.warning(str(warning))
+
+        if not acquired_df.empty:
+            acquired_rows = acquired_df.copy()
+            acquired_rows["stage"] = "Acquired Source"
+            visible_columns = [
+                column for column in [
+                    "stage",
+                    "title",
+                    "source",
+                    "document_type",
+                    "acquisition_status",
+                    "retrieval_timestamp",
+                    "source_reference",
+                    "reference_url",
+                    "original_candidate_identifier",
+                    "discovery_provider",
+                    "provider_name",
+                    "acquisition_error",
+                ] if column in acquired_rows.columns
+            ]
+            st.dataframe(acquired_rows[visible_columns], use_container_width=True)
+        else:
+            if evidence_acquisition_status == "acquired":
+                st.caption("Acquisition completed but no durable source records are currently available.")
+            elif evidence_acquisition_status == "unavailable":
+                st.caption("Candidate source acquisition is currently unavailable for this thesis.")
+            elif evidence_acquisition_status == "failed":
+                st.caption("Candidate source acquisition failed during preparation. You can continue governed review.")
+            elif evidence_acquisition_status == "not_attempted":
+                st.caption("Source acquisition did not run because discovery did not produce acquirable candidates.")
+            else:
+                st.caption("Source acquisition has not yet produced records for this thesis.")
 
         st.markdown("**Evidence Context**")
         supporting_rows = context["supporting_evidence"]
