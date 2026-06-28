@@ -399,6 +399,293 @@ def empty_state(message):
     st.info(message)
 
 
+def render_workspace_header(analyst_name=None, primary_text="Continue where you left off."):
+    """Render Workspace header copy in approved order."""
+    st.markdown("## Athena")
+    if analyst_name:
+        st.markdown(f"Good morning, {analyst_name}.")
+    st.caption(primary_text)
+
+
+def render_kpi_tile(label, value):
+    """Render a single KPI tile using existing metric behavior."""
+    metric_card(label, value)
+
+
+def render_metric_row(tiles, section_title=None, add_divider=False):
+    """Render KPI tiles in a single horizontal row."""
+    if not tiles:
+        return
+
+    if add_divider:
+        st.divider()
+    if section_title:
+        section_header(section_title)
+
+    columns = st.columns(len(tiles))
+    for col, tile in zip(columns, tiles):
+        with col:
+            render_kpi_tile(tile["label"], tile["value"])
+
+
+def open_thesis_workspace(thesis_id):
+    """Navigate to the thesis workspace for a given thesis id."""
+    st.session_state["selected_thesis_id"] = thesis_id
+    st.session_state["current_view"] = "Thesis Workspace"
+    st.rerun()
+
+
+def render_card_header(title, subtitle=None):
+    """Render card title and optional subtitle."""
+    st.markdown(
+        f"<div style='font-family:Cormorant Garamond, Playfair Display, Georgia, serif; font-size:1.6rem; color:#E8E6E0; margin-bottom:0.2rem;'>{title}</div>",
+        unsafe_allow_html=True,
+    )
+    if subtitle:
+        st.markdown(
+            f"<div style='font-family:Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; color:#8B8B9A; margin-bottom:0.6rem;'>{subtitle}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def render_recommendation_block(recommendation_text, has_decision):
+    """Render recommendation text with consistent emphasis."""
+    recommendation_color = "#C5A028" if has_decision else "#E8E6E0"
+    st.markdown(
+        f"<div style='font-family:Cormorant Garamond, Playfair Display, Georgia, serif; font-size:1.9rem; color:{recommendation_color}; margin-bottom:0.1rem;'>{recommendation_text}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; color:#8B8B9A; margin-bottom:0.5rem;'>Recommendation</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_score_summary(business_score, investment_score):
+    """Render business and investment score summary lines."""
+    st.markdown(
+        f"<div style='font-family:JetBrains Mono, Consolas, monospace; color:#E8E6E0;'>Business Score: {business_score}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='font-family:JetBrains Mono, Consolas, monospace; color:#E8E6E0;'>Investment Score: {investment_score}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_progress_row(label, value_text, pct=None):
+    """Render label/value text with optional progress bar."""
+    st.markdown(
+        f"<div style='font-family:Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; color:#8B8B9A; margin-top:0.45rem;'>{label}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='font-family:JetBrains Mono, Consolas, monospace; color:#E8E6E0;'>{value_text}</div>",
+        unsafe_allow_html=True,
+    )
+    if pct is not None:
+        bounded_pct = min(max(float(pct), 0.0), 1.0)
+        st.progress(bounded_pct)
+
+
+def render_progress_summary(progress_rows):
+    """Render all progress rows for the hero card."""
+    for row in progress_rows:
+        render_progress_row(row["label"], row["value_text"], row.get("pct"))
+
+
+def render_card_footer(action_label=None):
+    """Render optional card footer metadata."""
+    if action_label:
+        st.caption(action_label)
+
+
+def render_thesis_card(thesis_data):
+    """Render hero thesis card using existing dashboard data only."""
+    section_header("Hero Thesis")
+    if not thesis_data:
+        empty_state("No active thesis.")
+        return
+
+    recommendation_exists = bool(thesis_data.get("has_decision"))
+    recommendation_text = thesis_data.get("recommendation", "NO DECISION")
+    progress_rows = [
+        {"label": "Evidence", "value_text": "Pending", "pct": None},
+        {
+            "label": "Assessment Progress",
+            "value_text": thesis_data["assessment_progress"],
+            "pct": thesis_data.get("assessment_pct"),
+        },
+        {
+            "label": "Decision Progress",
+            "value_text": thesis_data["decision_progress"],
+            "pct": thesis_data.get("decision_pct"),
+        },
+    ]
+
+    with st.container(border=True):
+        render_card_header(thesis_data["company_name"], thesis_data["descriptor"])
+        render_recommendation_block(recommendation_text, recommendation_exists)
+        render_score_summary(thesis_data["business_score"], thesis_data["investment_score"])
+        render_progress_summary(progress_rows)
+        render_card_footer()
+
+    if st.button("Continue ->", key=f"workspace_hero_continue_{thesis_data['thesis_id']}"):
+        open_thesis_workspace(thesis_data["thesis_id"])
+
+
+def render_focus_panel(watchlist_rows):
+    """Render Today's Focus using existing watchlist rows only."""
+    section_header("Today's Focus")
+    if not watchlist_rows:
+        st.info("No immediate actions required.")
+        return
+
+    priority_styles = {
+        1: {"accent": "#C5A028", "label": "NOW"},
+        2: {"accent": "#8B8B9A", "label": "NEXT"},
+    }
+
+    for idx, row in enumerate(watchlist_rows[:3]):
+        row_priority = int(row.get("Priority", 3))
+        style = priority_styles.get(row_priority, {"accent": "#5A5A66", "label": "LATER"})
+        st.markdown(
+            f"<div style='background:#12121A; border:1px solid #1E1E2E; border-left:3px solid {style['accent']}; border-radius:6px; padding:0.85rem; margin-bottom:0.55rem;'>"
+            f"<div style='font-family:Cormorant Garamond, Playfair Display, Georgia, serif; font-size:1.3rem; color:#E8E6E0; margin-bottom:0.2rem;'>{row['Company']}</div>"
+            f"<div style='font-family:JetBrains Mono, Consolas, monospace; color:#E8E6E0; margin-bottom:0.35rem;'>{style['label']}</div>"
+            "<div style='font-family:Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; color:#8B8B9A;'>Next Action</div>"
+            f"<div style='font-family:JetBrains Mono, Consolas, monospace; color:#E8E6E0; margin-bottom:0.35rem;'>{row['Action Required']}</div>"
+            "<div style='font-family:Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; color:#8B8B9A;'>Reason</div>"
+            f"<div style='font-family:JetBrains Mono, Consolas, monospace; color:#E8E6E0;'>{row['Reason']}</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("Open ->", key=f"workspace_focus_open_{idx}_{row['thesis_id']}"):
+            open_thesis_workspace(row["thesis_id"])
+
+
+def render_portfolio_summary(portfolio_vm):
+    """Presentation wrapper for the existing portfolio summary table."""
+    st.divider()
+    section_header("Portfolio Summary")
+
+    portfolio_display_df = portfolio_vm.get("display_df")
+    portfolio_rows = portfolio_vm.get("rows", [])
+
+    if portfolio_display_df is None or portfolio_display_df.empty:
+        empty_state("No theses found. Click '➕ New Thesis' to create one.")
+        return
+
+    st.dataframe(portfolio_display_df, use_container_width=True)
+    st.caption("Open Thesis")
+    for row in portfolio_rows:
+        thesis_id = row["thesis_id"]
+        label = f"View {row['Company']}"
+        if st.button(label, key=f"dashboard_open_{thesis_id}"):
+            open_thesis_workspace(thesis_id)
+
+
+def render_governance_health(governance_display_df):
+    """Render governance health table."""
+    st.divider()
+    section_header("Governance Health")
+    if governance_display_df is not None and not governance_display_df.empty:
+        st.dataframe(governance_display_df, use_container_width=True)
+    else:
+        empty_state("No theses available.")
+
+
+def render_historical_review_summary(outcome_distribution_df, framework_theses_df):
+    """Render historical review section tables."""
+    st.divider()
+    section_header("Historical Review Summary")
+    if outcome_distribution_df is not None and not outcome_distribution_df.empty:
+        st.dataframe(outcome_distribution_df, use_container_width=True)
+    else:
+        empty_state("No thesis reviews recorded yet.")
+
+    if framework_theses_df is not None and not framework_theses_df.empty:
+        st.dataframe(framework_theses_df, use_container_width=True)
+    else:
+        empty_state("No theses currently flagged for framework review consideration.")
+
+
+def render_watchlist_queue(watchlist_display_df):
+    """Render watchlist and review queue table."""
+    st.divider()
+    section_header("Watchlist / Review Queue")
+    if watchlist_display_df is not None and not watchlist_display_df.empty:
+        st.dataframe(watchlist_display_df, use_container_width=True)
+    else:
+        st.info("No items require immediate attention.")
+    st.info("Workflow coordination is available in 📬 Hermes — Workflow Inbox.")
+
+
+def render_mnemosyne_section(mnemosyne_data):
+    """Render precomputed Mnemosyne display data."""
+    st.divider()
+    section_header("Mnemosyne — Historical Observations")
+    st.markdown(
+        "Historical observations are advisory only.\n"
+        "They do not modify decision records, thesis reviews,\n"
+        "or the investment framework."
+    )
+
+    if mnemosyne_data.get("banner_mode") == "Preliminary Observation":
+        st.warning(
+            "Preliminary Observation\n\n"
+            "Historical review volume is currently below the constitutional minimum of\n"
+            "10 reviews.\n\n"
+            "Trends shown below are descriptive only and should not be used to modify\n"
+            "the investment framework."
+        )
+    else:
+        st.info(
+            "Observation Mode\n\n"
+            "Historical review volume is sufficient for exploratory pattern analysis.\n\n"
+            "Observations remain informational and do not constitute framework\n"
+            "recommendations."
+        )
+
+    mnemosyne_distribution_df = mnemosyne_data.get("distribution_display_df")
+    if mnemosyne_distribution_df is not None and not mnemosyne_distribution_df.empty:
+        st.dataframe(mnemosyne_distribution_df, use_container_width=True)
+    else:
+        empty_state("No thesis reviews available for historical observation yet.")
+
+    metric_tiles = mnemosyne_data.get("metric_tiles", [])
+    render_metric_row(metric_tiles)
+
+    st.markdown(
+        "Observations derived from:\n\n"
+        f"• Thesis Reviews: {mnemosyne_data.get('total_reviews', 0)}\n\n"
+        f"• Distinct Theses: {mnemosyne_data.get('distinct_theses', 0)}\n\n"
+        "• Generated:\n"
+        f"{mnemosyne_data.get('generated_at', '—')}"
+    )
+
+
+def render_workspace(workspace_vm):
+    """Presentation-only workspace orchestration in approved order."""
+    render_workspace_header(
+        workspace_vm["header"].get("analyst_name"),
+        workspace_vm["header"].get("primary_text", "Continue where you left off."),
+    )
+    render_thesis_card(workspace_vm["hero"])
+    render_focus_panel(workspace_vm["focus"])
+    render_portfolio_summary(workspace_vm["portfolio"])
+    render_metric_row(workspace_vm["metrics"], section_title="Executive Metrics", add_divider=True)
+
+    render_governance_health(workspace_vm["governance"].get("display_df"))
+    render_historical_review_summary(
+        workspace_vm["historical"].get("outcome_distribution_df"),
+        workspace_vm["historical"].get("framework_theses_df"),
+    )
+    render_watchlist_queue(workspace_vm["watchlist"].get("display_df"))
+    render_mnemosyne_section(workspace_vm["mnemosyne"])
+
+
 def timeline_table(dataframe):
     """Display a timeline table with consistent formatting."""
     if not dataframe.empty:
@@ -663,7 +950,6 @@ with st.sidebar:
 
 # Main content area
 if st.session_state['current_view'] == 'Dashboard':
-    st.header("Dashboard")
 
     theses_df = fetch_dataframe(
         """
@@ -758,9 +1044,6 @@ if st.session_state['current_view'] == 'Dashboard':
 
         return None, "—"
 
-    st.divider()
-    section_header("Executive Summary")
-
     active_theses_count = int(
         theses_df[theses_df["status"].fillna("") != STATUS_CLOSED]["id"].count()
     )
@@ -775,19 +1058,6 @@ if st.session_state['current_view'] == 'Dashboard':
                 needs_review_count += 1
 
     framework_review_eligible_count = len(framework_eligible_ids)
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        metric_card("Active Theses", active_theses_count)
-    with col2:
-        metric_card("Decision Eligible", decision_eligible_count)
-    with col3:
-        metric_card("Needs Review", needs_review_count)
-    with col4:
-        metric_card("Framework Review Consideration Eligible", framework_review_eligible_count)
-
-    st.divider()
-    section_header("Portfolio Table")
 
     portfolio_rows = []
     for _, thesis_row in theses_df.iterrows():
@@ -824,33 +1094,79 @@ if st.session_state['current_view'] == 'Dashboard':
             }
         )
 
-    if portfolio_rows:
-        portfolio_display_df = pd.DataFrame(portfolio_rows)[
-            [
-                "Company",
-                "Ticker",
-                "Status",
-                "Recommendation",
-                "Business Score",
-                "Investment Score",
-                "Next Review",
-                "Action Required",
-            ]
-        ]
-        st.dataframe(portfolio_display_df, use_container_width=True)
+    watchlist_rows = []
+    for _, thesis_row in theses_df.iterrows():
+        tid = int(thesis_row["id"])
+        priority_value, reason_text = get_priority_and_reason(tid)
+        if priority_value is None:
+            continue
 
-        st.caption("Open Thesis")
-        for row in portfolio_rows:
-            label = f"View {row['Company']}"
-            if st.button(label, key=f"dashboard_open_{row['thesis_id']}"):
-                st.session_state['selected_thesis_id'] = row['thesis_id']
-                st.session_state['current_view'] = 'Thesis Detail'
-                st.rerun()
-    else:
-        empty_state("No theses found. Click '➕ New Thesis' to create one.")
+        watchlist_rows.append(
+            {
+                "thesis_id": tid,
+                "Priority": priority_value,
+                "Company": thesis_row["company_name"],
+                "Ticker": thesis_row["ticker"] if pd.notna(thesis_row["ticker"]) and str(thesis_row["ticker"]).strip() else "—",
+                "Action Required": reason_text,
+                "Reason": reason_text,
+            }
+        )
 
-    st.divider()
-    section_header("Governance Health")
+    hero_thesis_id = st.session_state.get("selected_thesis_id")
+    if hero_thesis_id is None:
+        if portfolio_rows:
+            hero_thesis_id = int(portfolio_rows[0]["thesis_id"])
+        elif watchlist_rows:
+            hero_thesis_id = int(watchlist_rows[0]["thesis_id"])
+
+    hero_thesis_data = None
+    if hero_thesis_id is not None:
+        hero_match = theses_df[theses_df["id"] == hero_thesis_id]
+        if not hero_match.empty:
+            hero_row = hero_match.iloc[0]
+            hero_latest_decision = latest_decision_by_thesis_id.get(int(hero_thesis_id))
+            hero_gate = gate_results_by_thesis_id.get(int(hero_thesis_id), {"completed": 0, "required": 11})
+            hero_descriptor = "—"
+            if pd.notna(hero_row["status"]) and str(hero_row["status"]).strip():
+                hero_descriptor = str(hero_row["status"]).strip()
+            else:
+                hero_descriptor = _active_thesis_descriptor(hero_row)
+
+            hero_business_score = "—"
+            if int(hero_thesis_id) in business_score_by_thesis_id:
+                hero_business_score = f"{business_score_by_thesis_id[int(hero_thesis_id)]:.1f}"
+
+            hero_investment_score = "—"
+            if int(hero_thesis_id) in investment_score_by_thesis_id:
+                hero_investment_score = f"{investment_score_by_thesis_id[int(hero_thesis_id)]:.1f}"
+
+            hero_recommendation = "NO DECISION"
+            has_hero_decision = hero_latest_decision is not None
+            if has_hero_decision and pd.notna(hero_latest_decision["recommendation"]) and str(hero_latest_decision["recommendation"]).strip():
+                hero_recommendation = str(hero_latest_decision["recommendation"]).strip()
+
+            assessment_completed = int(hero_gate.get("completed", 0))
+            assessment_required = int(hero_gate.get("required", 11))
+            assessment_pct = 0.0 if assessment_required == 0 else min(max(assessment_completed / assessment_required, 0.0), 1.0)
+
+            hero_thesis_data = {
+                "thesis_id": int(hero_thesis_id),
+                "company_name": hero_row["company_name"],
+                "descriptor": hero_descriptor,
+                "recommendation": hero_recommendation,
+                "has_decision": has_hero_decision,
+                "business_score": hero_business_score,
+                "investment_score": hero_investment_score,
+                "assessment_progress": f"{assessment_completed} / {assessment_required}",
+                "assessment_pct": assessment_pct,
+                "decision_progress": "Recorded" if has_hero_decision else "Not Recorded",
+                "decision_pct": 1.0 if has_hero_decision else 0.0,
+            }
+
+    watchlist_rows_sorted = sorted(
+        watchlist_rows,
+        key=lambda row: (row["Priority"], row["Company"]),
+    )
 
     governance_rows = []
     for _, thesis_row in theses_df.iterrows():
@@ -884,6 +1200,7 @@ if st.session_state['current_view'] == 'Dashboard':
             }
         )
 
+    governance_display_df = pd.DataFrame()
     if governance_rows:
         governance_df = pd.DataFrame(governance_rows).sort_values(
             by=["_gate_sort", "Company"],
@@ -892,12 +1209,6 @@ if st.session_state['current_view'] == 'Dashboard':
         governance_display_df = governance_df[
             ["Company", "Gate Status", "Completed", "Last Decision Date", "Next Review Date"]
         ]
-        st.dataframe(governance_display_df, use_container_width=True)
-    else:
-        empty_state("No theses available.")
-
-    st.divider()
-    section_header("Historical Review Summary")
 
     outcome_distribution_df = fetch_dataframe(
         """
@@ -907,10 +1218,6 @@ if st.session_state['current_view'] == 'Dashboard':
         ORDER BY outcome_attribution_type
         """
     )
-    if not outcome_distribution_df.empty:
-        st.dataframe(outcome_distribution_df, use_container_width=True)
-    else:
-        empty_state("No thesis reviews recorded yet.")
 
     framework_theses_df = fetch_dataframe(
         """
@@ -921,47 +1228,14 @@ if st.session_state['current_view'] == 'Dashboard':
         ORDER BY t.company_name ASC, tr.review_date DESC
         """
     )
-    if not framework_theses_df.empty:
-        st.dataframe(framework_theses_df, use_container_width=True)
-    else:
-        empty_state("No theses currently flagged for framework review consideration.")
 
-    st.divider()
-    section_header("Watchlist / Review Queue")
-
-    watchlist_rows = []
-    for _, thesis_row in theses_df.iterrows():
-        tid = int(thesis_row["id"])
-        priority_value, reason_text = get_priority_and_reason(tid)
-        if priority_value is None:
-            continue
-
-        watchlist_rows.append(
-            {
-                "Priority": priority_value,
-                "Company": thesis_row["company_name"],
-                "Ticker": thesis_row["ticker"] if pd.notna(thesis_row["ticker"]) and str(thesis_row["ticker"]).strip() else "—",
-                "Reason": reason_text,
-            }
-        )
-
-    if watchlist_rows:
-        watchlist_df = pd.DataFrame(watchlist_rows).sort_values(
+    watchlist_display_df = pd.DataFrame()
+    if watchlist_rows_sorted:
+        watchlist_df = pd.DataFrame(watchlist_rows_sorted).sort_values(
             by=["Priority", "Company"],
             ascending=[True, True]
         )
-        st.dataframe(watchlist_df, use_container_width=True)
-    else:
-        st.info("No items require immediate attention.")
-    st.info("Workflow coordination is available in 📬 Hermes — Workflow Inbox.")
-
-    st.divider()
-    section_header("Mnemosyne — Historical Observations")
-    st.markdown(
-        "Historical observations are advisory only.\n"
-        "They do not modify decision records, thesis reviews,\n"
-        "or the investment framework."
-    )
+        watchlist_display_df = watchlist_df[["Priority", "Company", "Ticker", "Reason"]]
 
     total_reviews_df = fetch_dataframe(
         "SELECT COUNT(*) AS total_reviews FROM thesis_reviews"
@@ -969,21 +1243,8 @@ if st.session_state['current_view'] == 'Dashboard':
     total_reviews = int(total_reviews_df.iloc[0]["total_reviews"]) if not total_reviews_df.empty else 0
 
     if total_reviews < MNEMOSYNE_MINIMUM_REVIEW_VOLUME:
-        st.warning(
-            "Preliminary Observation\n\n"
-            "Historical review volume is currently below the constitutional minimum of\n"
-            "10 reviews.\n\n"
-            "Trends shown below are descriptive only and should not be used to modify\n"
-            "the investment framework."
-        )
         mnemosyne_banner_mode = "Preliminary Observation"
     else:
-        st.info(
-            "Observation Mode\n\n"
-            "Historical review volume is sufficient for exploratory pattern analysis.\n\n"
-            "Observations remain informational and do not constitute framework\n"
-            "recommendations."
-        )
         mnemosyne_banner_mode = "Observation Mode"
 
     mnemosyne_outcome_distribution_df = fetch_dataframe(
@@ -996,6 +1257,7 @@ if st.session_state['current_view'] == 'Dashboard':
         """
     )
 
+    distribution_display_df = pd.DataFrame()
     if not mnemosyne_outcome_distribution_df.empty:
         distribution_display_rows = []
         for _, row in mnemosyne_outcome_distribution_df.iterrows():
@@ -1008,10 +1270,7 @@ if st.session_state['current_view'] == 'Dashboard':
                     "Percentage": f"{percentage:.1f}%",
                 }
             )
-
-        st.dataframe(pd.DataFrame(distribution_display_rows), use_container_width=True)
-    else:
-        empty_state("No thesis reviews available for historical observation yet.")
+        distribution_display_df = pd.DataFrame(distribution_display_rows)
 
     distinct_theses_df = fetch_dataframe(
         "SELECT COUNT(DISTINCT thesis_id) AS distinct_theses FROM thesis_reviews"
@@ -1027,23 +1286,71 @@ if st.session_state['current_view'] == 'Dashboard':
     review_horizons_completed = int(review_horizons_completed_df.iloc[0]["review_horizons_completed"]) if not review_horizons_completed_df.empty else 0
     framework_review_consideration_count = int(framework_review_consideration_count_df.iloc[0]["framework_review_consideration_count"]) if not framework_review_consideration_count_df.empty else 0
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        metric_card("Total Thesis Reviews", total_reviews)
-    with col2:
-        metric_card("Distinct Theses Reviewed", distinct_theses)
-    with col3:
-        metric_card("Review Horizons Completed", review_horizons_completed)
-    with col4:
-        metric_card("Framework Review Consideration Count", framework_review_consideration_count)
+    metric_tiles = [
+        {"label": "Active Theses", "value": active_theses_count},
+        {"label": "Decision Eligible", "value": decision_eligible_count},
+        {"label": "Needs Review", "value": needs_review_count},
+        {"label": "Framework Review", "value": framework_review_eligible_count},
+    ]
 
-    st.markdown(
-        "Observations derived from:\n\n"
-        f"• Thesis Reviews: {total_reviews}\n\n"
-        f"• Distinct Theses: {distinct_theses}\n\n"
-        "• Generated:\n"
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    )
+    mnemosyne_data = {
+        "banner_mode": mnemosyne_banner_mode,
+        "distribution_display_df": distribution_display_df,
+        "metric_tiles": [
+            {"label": "Total Thesis Reviews", "value": total_reviews},
+            {"label": "Distinct Theses Reviewed", "value": distinct_theses},
+            {"label": "Review Horizons Completed", "value": review_horizons_completed},
+            {"label": "Framework Review Consideration Count", "value": framework_review_consideration_count},
+        ],
+        "total_reviews": total_reviews,
+        "distinct_theses": distinct_theses,
+        "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M'),
+    }
+
+    portfolio_display_df = pd.DataFrame()
+    if portfolio_rows:
+        portfolio_display_df = pd.DataFrame(portfolio_rows)[
+            [
+                "Company",
+                "Ticker",
+                "Status",
+                "Recommendation",
+                "Business Score",
+                "Investment Score",
+                "Next Review",
+                "Action Required",
+            ]
+        ]
+
+    workspace_vm = {
+        "header": {
+            "analyst_name": st.session_state.get("analyst_name"),
+            "primary_text": "Continue where you left off.",
+        },
+        "hero": hero_thesis_data,
+        "focus": watchlist_rows_sorted,
+        "portfolio": {
+            "rows": portfolio_rows,
+            "display_df": portfolio_display_df,
+        },
+        "metrics": metric_tiles,
+        "governance": {
+            "display_df": governance_display_df,
+        },
+        "historical": {
+            "outcome_distribution_df": outcome_distribution_df,
+            "framework_theses_df": framework_theses_df,
+        },
+        "watchlist": {
+            "display_df": watchlist_display_df,
+        },
+        "mnemosyne": mnemosyne_data,
+        "assessment": None,
+        "decision": None,
+        "evidence": None,
+    }
+
+    render_workspace(workspace_vm)
 
 elif st.session_state['current_view'] == 'Hermes Workflow Inbox':
     st.header("📬 Hermes — Workflow Inbox")
