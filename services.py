@@ -1,5 +1,7 @@
 import sqlite3
 import uuid
+import os
+import json
 from datetime import datetime
 
 import pandas as pd
@@ -366,6 +368,7 @@ EVENT_EVIDENCE_PROMOTION_BLOCKED = "Evidence Promotion Blocked"
 EVENT_EVIDENCE_ARCHIVED = "Evidence Archived"
 EVENT_EVIDENCE_OBSERVATION_CREATED = "Evidence Observation Created"
 EVENT_EVIDENCE_OBSERVATION_UPDATED = "Evidence Observation Updated"
+EVENT_THEIA_EXTRACTION_INVOKED = "Theia Extraction Invoked"
 
 INTAKE_STATUS_PENDING = "Pending"
 INTAKE_STATUS_REVIEWED = "Reviewed"
@@ -794,6 +797,174 @@ def update_evidence_item(
     )
 
     return True
+
+
+def get_extraction_suggestions(evidence_item_id, document_text=None):
+    """Return ephemeral extraction suggestions for a promoted evidence item."""
+    promotion_check = _resolve_promoted_evidence_item(evidence_item_id)
+    if not promotion_check["ok"]:
+        return {
+            "success": False,
+            "message": promotion_check["message"],
+            "suggestions": [],
+        }
+
+    evidence_df = fetch_dataframe(
+        """
+        SELECT id, thesis_id, COALESCE(title, source_name) AS title, source_text
+        FROM evidence_items
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (int(evidence_item_id),),
+    )
+    if evidence_df.empty:
+        return {
+            "success": False,
+            "message": "Evidence item not found.",
+            "suggestions": [],
+        }
+
+    evidence_row = evidence_df.iloc[0]
+    thesis_id = int(evidence_row["thesis_id"]) if pd.notna(evidence_row["thesis_id"]) else promotion_check["thesis_id"]
+    effective_document_text = (
+        str(document_text).strip()
+        if document_text is not None and str(document_text).strip()
+        else (
+            str(evidence_row["source_text"]).strip()
+            if pd.notna(evidence_row["source_text"]) and str(evidence_row["source_text"]).strip()
+            else ""
+        )
+    )
+
+    if not effective_document_text:
+        log_event(
+            thesis_id=thesis_id,
+            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
+            created_by="System",
+            version="1.0",
+        )
+        return {
+            "success": False,
+            "message": "Extraction blocked: source_text or document_text is required.",
+            "suggestions": [],
+        }
+
+    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not anthropic_api_key:
+        log_event(
+            thesis_id=thesis_id,
+            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
+            created_by="System",
+            version="1.0",
+        )
+        return {
+            "success": False,
+            "message": "Missing Anthropic API configuration: ANTHROPIC_API_KEY.",
+            "suggestions": [],
+        }
+
+    try:
+        import anthropic
+    except ImportError:
+        log_event(
+            thesis_id=thesis_id,
+            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
+            created_by="System",
+            version="1.0",
+        )
+        return {
+            "success": False,
+            "message": "Missing Anthropic SDK dependency: anthropic.",
+            "suggestions": [],
+        }
+
+    client = anthropic.Anthropic(api_key=anthropic_api_key)
+
+    system_prompt = (
+        "You are Theia, an evidence extraction assistant for a governed investment research workflow. "
+        "Extract up to 5 high-signal passages from the provided source text. "
+        "Return strict JSON only with this schema: "
+        "{\"suggestions\":[{\"passage\":string,\"pillar_signal\":string,\"confidence\":string,\"source_location\":string}]}. "
+        "Do not return any additional fields."
+    )
+
+    user_prompt = (
+        f"Evidence item id: {int(evidence_item_id)}\n"
+        f"Title: {str(evidence_row['title']).strip() if pd.notna(evidence_row['title']) else ''}\n\n"
+        "Source text:\n"
+        f"{effective_document_text}"
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1200,
+            temperature=0,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        raw_text = ""
+        if getattr(response, "content", None):
+            for block in response.content:
+                if getattr(block, "type", "") == "text":
+                    raw_text += getattr(block, "text", "")
+
+        parsed = json.loads(raw_text) if raw_text.strip() else {"suggestions": []}
+        raw_suggestions = parsed.get("suggestions", []) if isinstance(parsed, dict) else []
+    except Exception as exc:
+        log_event(
+            thesis_id=thesis_id,
+            event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+            description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count=0",
+            created_by="System",
+            version="1.0",
+        )
+        return {
+            "success": False,
+            "message": f"Extraction failed: {str(exc)}",
+            "suggestions": [],
+        }
+
+    suggestions = []
+    for candidate in raw_suggestions:
+        if not isinstance(candidate, dict):
+            continue
+        passage_value = str(candidate.get("passage", "")).strip()
+        if not passage_value:
+            continue
+        pillar_signal_value = str(candidate.get("pillar_signal", "")).strip()
+        confidence_value = str(candidate.get("confidence", "")).strip()
+        source_location_value = str(candidate.get("source_location", "")).strip()
+        suggestions.append(
+            {
+                "passage": passage_value,
+                "pillar_signal": pillar_signal_value,
+                "confidence": confidence_value,
+                "source_location": source_location_value,
+            }
+        )
+        if len(suggestions) >= 5:
+            break
+
+    log_event(
+        thesis_id=thesis_id,
+        event_type=EVENT_THEIA_EXTRACTION_INVOKED,
+        description=f"evidence_item_id={int(evidence_item_id)}|suggestion_count={len(suggestions)}",
+        created_by="System",
+        version="1.0",
+    )
+
+    return {
+        "success": True,
+        "message": f"Generated {len(suggestions)} extraction suggestion(s).",
+        "suggestions": suggestions,
+    }
 
 
 def update_staged_evidence_status(

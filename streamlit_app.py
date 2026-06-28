@@ -20,6 +20,7 @@ from services import (
     archive_staged_evidence,
     create_evidence_observation,
     update_evidence_observation,
+    get_extraction_suggestions,
     build_thesis_json,
     validate_decision_gate,
     compute_hermes_inbox,
@@ -1725,6 +1726,36 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                     format_func=lambda evidence_id: promoted_labels.get(evidence_id, f"#{evidence_id}"),
                     key="observation_selected_evidence_id",
                 )
+
+                st.caption("Theia Extraction (Ephemeral)")
+                extraction_suggestions = []
+                if st.button("Extract Passages", key="theia_extract_passages_button", use_container_width=True):
+                    extraction_result = get_extraction_suggestions(
+                        evidence_item_id=selected_observation_evidence_id,
+                    )
+                    extraction_suggestions = extraction_result.get("suggestions", [])
+
+                    if extraction_result.get("success"):
+                        st.success(extraction_result.get("message", "Extraction completed."))
+                    else:
+                        st.error(extraction_result.get("message", "Extraction failed."))
+
+                if extraction_suggestions:
+                    st.write("Suggested Passages (Ephemeral)")
+                    for idx, suggestion in enumerate(extraction_suggestions, start=1):
+                        with st.expander(f"Suggestion {idx}", expanded=False):
+                            st.write(suggestion.get("passage", ""))
+                            st.caption(
+                                f"Pillar Signal: {suggestion.get('pillar_signal') or '—'} | "
+                                f"Confidence: {suggestion.get('confidence') or '—'} | "
+                                f"Source Location: {suggestion.get('source_location') or '—'}"
+                            )
+
+                            if st.button("Use Pillar In Observation Form", key=f"theia_use_suggestion_{idx}"):
+                                if suggestion.get("pillar_signal"):
+                                    st.session_state["observation_pillar_id"] = suggestion.get("pillar_signal")
+                                st.session_state["observation_text"] = ""
+                                st.success("Pillar pre-populated. Observation text remains blank.")
 
                 with st.form("observation_create_form"):
                     col1, col2 = st.columns(2)
