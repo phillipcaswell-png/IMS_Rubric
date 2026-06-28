@@ -1,0 +1,10 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "athena-lifecycle-checks",
+			"type": "shell",
+			"command": "cd /Users/phillipcaswell/Documents/GitHub/IMS_Rubric && echo \"FILE CREATED:\" && ls -la ATHENA_INFORMATION_LIFECYCLE.md && echo \"\" && echo \"LINE COUNT:\" && wc -l ATHENA_INFORMATION_LIFECYCLE.md && echo \"\" && echo \"HEADING OUTLINE:\" && grep -nE '^(#|##|###|####) ' ATHENA_INFORMATION_LIFECYCLE.md && echo \"\" && echo \"TRANSITION CHECKS:\" && grep -n \"Stage 2 → Stage 3\" ATHENA_INFORMATION_LIFECYCLE.md && grep -n \"Stage 2 → Stage 4\" ATHENA_INFORMATION_LIFECYCLE.md && grep -n \"Governed Acceptance\" ATHENA_INFORMATION_LIFECYCLE.md && echo \"\" && echo \"FINAL SENTENCE:\" && tail -n 1 ATHENA_INFORMATION_LIFECYCLE.md && echo \"\" && echo \"GIT STATUS:\" && git status --short"
+		}
+	]
+}
