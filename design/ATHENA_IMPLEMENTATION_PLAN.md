@@ -203,3 +203,33 @@ Acceptance Criteria:
 - Icons are gold (#C5A028) by default
 - Icons can be recolored via CSS for status variants
 - No functional regressions
+
+---
+
+## Standard Prompt Structure
+
+Every implementation prompt follows this governed sequence.
+
+L1 Prompts:
+  Inspection optional
+  Phase 1: Implementation → Verify → Report → STOP
+  Phase 2: Review → Approve → Commit → Tag if milestone
+
+L2 Prompts:
+  Phase 0: Inspect → Report → STOP → Wait for approval
+  Phase 1: Implement → Verify → Report → STOP
+  Phase 2: Review → Approve → Commit → Tag if milestone
+
+L3 Prompts:
+  Phase 0: Inspect → Report → STOP → Wait for approval
+  Phase 1: Implement → Verify → Report → STOP
+  Phase 2: Review → Approve → Commit → Tag if milestone
+  Phase 3: Validate against historical reference case
+           before commit authorization
+
+Verification stays with Implementation.
+Review decides whether the verified implementation
+becomes part of the project.
+Commit requires explicit approval after review.
+
+---

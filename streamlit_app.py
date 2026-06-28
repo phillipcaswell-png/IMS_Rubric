@@ -440,44 +440,226 @@ if 'selected_thesis_id' not in st.session_state:
 if 'selected_evidence_id' not in st.session_state:
     st.session_state['selected_evidence_id'] = None
 
+
+def _render_sidebar_styles():
+    """Render stable sidebar styles without positional selectors."""
+    st.markdown(
+        """
+<style>
+section[data-testid='stSidebar'] .athena-brand-title {
+  font-family: Cormorant Garamond, Playfair Display, Georgia, serif;
+  font-size: 1.8rem;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  color: #E8E6E0;
+  margin: 0;
+}
+section[data-testid='stSidebar'] .athena-brand-subtitle {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #8B8B9A;
+  margin-top: 0.35rem;
+  margin-bottom: 1.1rem;
+}
+section[data-testid='stSidebar'] .athena-section-label {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #8B8B9A;
+  margin-top: 0.2rem;
+  margin-bottom: 0.45rem;
+}
+section[data-testid='stSidebar'] .athena-history-map {
+  font-family: JetBrains Mono, Consolas, monospace;
+  font-size: 0.7rem;
+  color: #8B8B9A;
+  margin-left: 0.85rem;
+  margin-top: -0.35rem;
+  margin-bottom: 0.3rem;
+}
+section[data-testid='stSidebar'] .athena-active-card {
+  background: #12121A;
+  border: 1px solid #1E1E2E;
+  border-radius: 0.55rem;
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 0.45rem;
+}
+section[data-testid='stSidebar'] .athena-active-company {
+  font-family: Cormorant Garamond, Playfair Display, Georgia, serif;
+  font-size: 1.2rem;
+  color: #E8E6E0;
+  line-height: 1.25;
+}
+section[data-testid='stSidebar'] .athena-active-subtitle {
+  font-family: JetBrains Mono, Consolas, monospace;
+  font-size: 0.8rem;
+  color: #8B8B9A;
+  margin-top: 0.3rem;
+}
+section[data-testid='stSidebar'] .athena-active-status {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #C5A028;
+  margin-top: 0.35rem;
+  font-size: 0.86rem;
+}
+section[data-testid='stSidebar'] div[data-testid='stButton'] > button {
+  width: 100%;
+  border-radius: 0.5rem;
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_brand():
+    """Render sidebar brand header."""
+    st.markdown("<div class='athena-brand-title'>ATHENA</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='athena-brand-subtitle'>Governed Investment Intelligence</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _is_primary_nav_active(label, current_view):
+    """Return whether a primary navigation label should appear active."""
+    if label == "Workspace":
+        return current_view in ["Dashboard", "New Thesis", "Hermes Workflow Inbox"]
+    if label == "Theses":
+        return current_view in ["Thesis Workspace", "Thesis Detail"]
+    if label == "History":
+        return current_view == "Documentation"
+    if label == "Settings":
+        return current_view == "Settings"
+    return False
+
+
+def _apply_primary_navigation(label):
+    """Apply existing primary navigation mapping and lifecycle behavior."""
+    if label == "Workspace":
+        st.session_state["current_view"] = "Dashboard"
+        st.session_state["selected_thesis_id"] = None
+    elif label == "Theses":
+        if st.session_state.get("selected_thesis_id") is not None:
+            st.session_state["current_view"] = "Thesis Workspace"
+        else:
+            st.session_state["current_view"] = "Dashboard"
+    elif label == "History":
+        st.session_state["current_view"] = "Documentation"
+        st.session_state["selected_thesis_id"] = None
+    elif label == "Settings":
+        st.session_state["current_view"] = "Settings"
+        st.session_state["selected_thesis_id"] = None
+
+
+def render_sidebar_primary_navigation(current_view):
+    """Render primary navigation controls."""
+    primary_nav_labels = ["Workspace", "Theses", "History", "Settings"]
+    for nav_label in primary_nav_labels:
+        button_type = "primary" if _is_primary_nav_active(nav_label, current_view) else "secondary"
+        if st.button(nav_label, key=f"nav_{nav_label}", use_container_width=True, type=button_type):
+            _apply_primary_navigation(nav_label)
+            st.rerun()
+        if nav_label == "History":
+            st.markdown("<div class='athena-history-map'>Documentation</div>", unsafe_allow_html=True)
+
+
+def _active_thesis_descriptor(thesis_row):
+    """Build a neutral thesis descriptor from existing thesis metadata."""
+    descriptor_fields = ["account_type", "portfolio_role", "primary_horizon"]
+    for field_name in descriptor_fields:
+        if field_name in thesis_row and pd.notna(thesis_row[field_name]):
+            candidate = str(thesis_row[field_name]).strip()
+            if candidate:
+                return candidate
+    return "Active Thesis"
+
+
+def render_active_thesis_card(theses_df, selected_thesis_id):
+    """Render the active thesis summary card when a thesis is selected."""
+    if selected_thesis_id is None:
+        return
+
+    active_match = theses_df[theses_df["id"] == selected_thesis_id]
+    active_company_name = "Selected Thesis"
+    active_descriptor = "Active Thesis"
+    if not active_match.empty:
+        active_row = active_match.iloc[0]
+        active_company_name = active_row["company_name"]
+        active_descriptor = _active_thesis_descriptor(active_row)
+
+    st.markdown("<div class='athena-section-label'>Active Thesis</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='athena-active-card'>"
+        f"<div class='athena-active-company'>{active_company_name}</div>"
+        f"<div class='athena-active-subtitle'>{active_descriptor}</div>"
+        "<div class='athena-active-status'>⬤ In Progress</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Continue →", key="nav_continue_active", use_container_width=True, type="secondary"):
+        st.session_state["current_view"] = "Thesis Workspace"
+        st.rerun()
+
+
+def render_sidebar_portfolio(theses_df):
+    """Render thesis list under Portfolio section."""
+    st.markdown("<div class='athena-section-label'>Portfolio</div>", unsafe_allow_html=True)
+    for _, row in theses_df.iterrows():
+        is_selected = st.session_state.get("selected_thesis_id") == row["id"]
+        button_type = "primary" if is_selected else "secondary"
+        if st.button(
+            row["company_name"],
+            key=f"thesis_{row['id']}",
+            use_container_width=True,
+            type=button_type,
+        ):
+            st.session_state["current_view"] = "Thesis Workspace"
+            st.session_state["selected_thesis_id"] = row["id"]
+            st.rerun()
+
+
+def render_sidebar_actions():
+    """Render sidebar actions with existing routing behavior."""
+    st.markdown("<div class='athena-section-label'>Actions</div>", unsafe_allow_html=True)
+
+    if st.button("New Thesis", key="nav_new_thesis", use_container_width=True, type="secondary"):
+        st.session_state["current_view"] = "New Thesis"
+        st.session_state["selected_thesis_id"] = None
+        st.rerun()
+
+    if st.button("Workflow Inbox", key="nav_workflow_inbox", use_container_width=True, type="secondary"):
+        st.session_state["current_view"] = "Hermes Workflow Inbox"
+        st.session_state["selected_thesis_id"] = None
+        st.rerun()
+
+
 # Sidebar navigation
 with st.sidebar:
-    st.title("Navigation")
-    
-    # Dashboard and New Thesis
-    if st.button("🏠 Dashboard"):
-        st.session_state['current_view'] = 'Dashboard'
-        st.session_state['selected_thesis_id'] = None
-    
-    if st.button("➕ New Thesis"):
-        st.session_state['current_view'] = 'New Thesis'
-        st.session_state['selected_thesis_id'] = None
+    theses_df = fetch_dataframe(
+        """
+        SELECT id, company_name, account_type, portfolio_role, primary_horizon
+        FROM theses
+        ORDER BY company_name
+        """
+    )
+    selected_thesis_id = st.session_state.get("selected_thesis_id")
+    current_view = st.session_state.get("current_view", "Dashboard")
 
-    if st.button("📬 Hermes — Workflow Inbox"):
-        st.session_state['current_view'] = 'Hermes Workflow Inbox'
-        st.session_state['selected_thesis_id'] = None
-    
+    _render_sidebar_styles()
+    render_sidebar_brand()
     st.divider()
-    
-    # Active Theses
-    st.subheader("Active Theses")
-    theses_df = fetch_dataframe("SELECT id, company_name FROM theses ORDER BY company_name")
-    
-    for idx, row in theses_df.iterrows():
-        if st.button(row['company_name'], key=f"thesis_{row['id']}"):
-            st.session_state['current_view'] = 'Thesis Workspace'
-            st.session_state['selected_thesis_id'] = row['id']
-    
+    render_sidebar_primary_navigation(current_view)
+    st.markdown("<br>", unsafe_allow_html=True)
+    render_active_thesis_card(theses_df, selected_thesis_id)
+    render_sidebar_portfolio(theses_df)
     st.divider()
-    
-    # Settings and Documentation
-    if st.button("⚙️ Settings"):
-        st.session_state['current_view'] = 'Settings'
-        st.session_state['selected_thesis_id'] = None
-    
-    if st.button("📋 Documentation"):
-        st.session_state['current_view'] = 'Documentation'
-        st.session_state['selected_thesis_id'] = None
+    render_sidebar_actions()
 
 # Main content area
 if st.session_state['current_view'] == 'Dashboard':
