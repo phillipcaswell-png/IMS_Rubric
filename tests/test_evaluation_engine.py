@@ -26,6 +26,10 @@ class EvaluationEngineTests(unittest.TestCase):
         self.assertEqual(result["lifecycle_state"], evaluation_engine.LIFECYCLE_READY_FOR_ANALYST)
         self.assertTrue(result["workspace_ready"])
         self.assertEqual(result["readiness_status"], evaluation_engine.READINESS_READY_FOR_ANALYST)
+        self.assertIn(result["evidence_discovery_status"], ["discovered", "unavailable", "failed", "pending"])
+        self.assertIsInstance(result["candidate_count"], int)
+        self.assertIsInstance(result["candidate_documents"], list)
+        self.assertIsInstance(result["discovery_warnings"], list)
         self.assertEqual(result["preparation_action"], "created")
         self.assertEqual(result["thesis_action"], "created")
         self.assertIsInstance(result["preparation_id"], int)
@@ -41,6 +45,10 @@ class EvaluationEngineTests(unittest.TestCase):
                     "preparation_id",
                     "workspace_ready",
                     "readiness_status",
+                    "evidence_discovery_status",
+                    "candidate_count",
+                    "candidate_documents",
+                    "discovery_warnings",
                     "preparation_action",
                     "thesis_action",
                     "warnings",
@@ -74,6 +82,8 @@ class EvaluationEngineTests(unittest.TestCase):
         self.assertEqual(result["lifecycle_state"], evaluation_engine.LIFECYCLE_FAILED)
         self.assertEqual(result["readiness_status"], evaluation_engine.READINESS_FAILED)
         self.assertFalse(result["workspace_ready"])
+        self.assertEqual(result["candidate_count"], 0)
+        self.assertEqual(result["candidate_documents"], [])
         self.assertIn("ticker and observation_date are required.", result["errors"])
 
     def test_prepare_evaluation_reports_partial_when_workspace_verification_fails(self):
@@ -92,6 +102,55 @@ class EvaluationEngineTests(unittest.TestCase):
         self.assertEqual(result["readiness_status"], evaluation_engine.READINESS_PARTIAL)
         self.assertFalse(result["workspace_ready"])
         self.assertTrue(any("Workspace verification failed" in item for item in result["errors"]))
+
+    def test_prepare_evaluation_reuses_persisted_candidate_documents(self):
+        class StaticProvider:
+            provider_name = "Static Provider"
+
+            def discover(self, ticker, observation_date):
+                return {
+                    "provider_name": self.provider_name,
+                    "status": "discovered",
+                    "candidates": [
+                        {
+                            "title": f"{ticker} annual report",
+                            "source": "Static",
+                            "document_type": "10-K",
+                            "publication_date": "2000-01-01",
+                            "reference_url": "https://example.test/10k",
+                            "reference_id": "ACC-1",
+                            "discovery_status": "candidate",
+                            "warnings": [],
+                        }
+                    ],
+                    "warnings": [],
+                }
+
+        provider = StaticProvider()
+        first = evaluation_engine.prepare_evaluation("KODK", "2000-01-01", discovery_providers=[provider])
+        second = evaluation_engine.prepare_evaluation("KODK", "2000-01-01", discovery_providers=[])
+
+        self.assertEqual(first["candidate_count"], 1)
+        self.assertEqual(second["candidate_count"], 1)
+        self.assertEqual(second["candidate_documents"][0]["reference_id"], "ACC-1")
+
+    def test_prepare_evaluation_discovery_failure_does_not_block_workspace(self):
+        class BrokenProvider:
+            provider_name = "Broken Provider"
+
+            def discover(self, ticker, observation_date):
+                raise RuntimeError("discovery offline")
+
+        result = evaluation_engine.prepare_evaluation(
+            "IBM",
+            "2000-01-01",
+            discovery_providers=[BrokenProvider()],
+        )
+
+        self.assertEqual(result["lifecycle_state"], evaluation_engine.LIFECYCLE_READY_FOR_ANALYST)
+        self.assertTrue(result["workspace_ready"])
+        self.assertEqual(result["evidence_discovery_status"], "failed")
+        self.assertEqual(result["candidate_count"], 0)
 
 
 if __name__ == "__main__":

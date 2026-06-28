@@ -13,6 +13,7 @@ from services import (
     log_event,
     get_overview_metrics,
     get_business_evidence_coverage,
+    get_candidate_evidence_for_thesis,
     get_available_evidence_items,
     get_observations_for_evidence,
     get_observations_for_pillar,
@@ -473,6 +474,9 @@ def render_preparation_status(status_obj):
     lifecycle_state = str(status_obj.get("lifecycle_state", "preparing")).strip()
     preparation_action = str(status_obj.get("preparation_action", "unknown")).strip()
     thesis_action = str(status_obj.get("thesis_action", "unknown")).strip()
+    evidence_discovery_status = str(status_obj.get("evidence_discovery_status", "pending")).strip()
+    candidate_count = int(status_obj.get("candidate_count", 0) or 0)
+    discovery_warnings = status_obj.get("discovery_warnings", []) or []
     workspace_ready = bool(status_obj.get("workspace_ready"))
     warnings = status_obj.get("warnings", []) or []
     errors = status_obj.get("errors", []) or []
@@ -503,6 +507,18 @@ def render_preparation_status(status_obj):
         lines.append("✕ Workspace Preparation Failed")
     else:
         lines.append("… Workspace Preparation Pending")
+
+    if evidence_discovery_status == "discovered":
+        lines.append(f"✓ Candidate Evidence Discovered ({candidate_count})")
+    elif evidence_discovery_status == "unavailable":
+        lines.append("⚠ Candidate Evidence Discovery Unavailable")
+    elif evidence_discovery_status == "failed":
+        lines.append("⚠ Candidate Evidence Discovery Failed")
+    else:
+        lines.append("… Candidate Evidence Discovery Pending")
+
+    for discovery_warning in discovery_warnings:
+        lines.append(f"⚠ {discovery_warning}")
 
     for warning_text in warnings:
         lines.append(f"⚠ {warning_text}")
@@ -912,6 +928,30 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
     available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
     linked_evidence_defaults = get_linked_evidence_ids(pillar_score_id) if pillar_score_id is not None else []
     context = _build_assessment_workspace_context(thesis_id, pillar_id)
+    candidate_df = get_candidate_evidence_for_thesis(thesis_id)
+    preparation_df = fetch_dataframe(
+        """
+        SELECT evidence_discovery_status, candidate_count, discovery_warnings_json
+        FROM evaluation_preparations
+        WHERE thesis_id = ?
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+        """,
+        (thesis_id,),
+    )
+    evidence_discovery_status = "pending"
+    discovery_warnings = []
+    if not preparation_df.empty:
+        prep_row = preparation_df.iloc[0]
+        if pd.notna(prep_row["evidence_discovery_status"]) and str(prep_row["evidence_discovery_status"]).strip():
+            evidence_discovery_status = str(prep_row["evidence_discovery_status"]).strip()
+        if pd.notna(prep_row["discovery_warnings_json"]) and str(prep_row["discovery_warnings_json"]).strip():
+            try:
+                discovery_warnings = json.loads(str(prep_row["discovery_warnings_json"]))
+                if not isinstance(discovery_warnings, list):
+                    discovery_warnings = []
+            except (ValueError, TypeError):
+                discovery_warnings = []
     gate_result = validate_decision_gate(thesis_id)
 
     progress_df = fetch_dataframe(
@@ -946,6 +986,40 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
         st.caption(f"Focused Pillar: {pillar_id} — {pillar_name}")
         if pillar_id in BUSINESS_PILLAR_GUIDANCE:
             st.info(BUSINESS_PILLAR_GUIDANCE[pillar_id])
+
+        st.markdown("**Discovered Candidate Evidence**")
+        st.caption("Candidate evidence only. These documents are discovery metadata and are not acquired, ingested, extracted, promoted, or governed evidence.")
+        st.caption(f"Discovery Status: {evidence_discovery_status}")
+        if discovery_warnings:
+            for warning in discovery_warnings:
+                st.warning(str(warning))
+
+        if not candidate_df.empty:
+            candidate_rows = candidate_df.copy()
+            candidate_rows["candidate_evidence"] = "Candidate"
+            visible_columns = [
+                column for column in [
+                    "candidate_evidence",
+                    "title",
+                    "source",
+                    "document_type",
+                    "publication_date",
+                    "reference_url",
+                    "reference_id",
+                    "provider_name",
+                    "discovery_status",
+                ] if column in candidate_rows.columns
+            ]
+            st.dataframe(candidate_rows[visible_columns], use_container_width=True)
+        else:
+            if evidence_discovery_status == "discovered":
+                st.caption("No candidate evidence metadata is currently available for this preparation.")
+            elif evidence_discovery_status == "unavailable":
+                st.caption("Candidate discovery is currently unavailable for this thesis.")
+            elif evidence_discovery_status == "failed":
+                st.caption("Candidate discovery failed during preparation. You can continue governed review.")
+            else:
+                st.caption("Candidate discovery has not yet produced documents for this thesis.")
 
         st.markdown("**Evidence Context**")
         supporting_rows = context["supporting_evidence"]

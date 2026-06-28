@@ -78,12 +78,53 @@ def init_db():
             lifecycle_state TEXT NOT NULL,
             workspace_ready INTEGER DEFAULT 0,
             readiness_status TEXT NOT NULL,
+            evidence_discovery_status TEXT DEFAULT 'pending',
+            candidate_count INTEGER DEFAULT 0,
+            discovery_warnings_json TEXT,
             warnings_json TEXT,
             errors_json TEXT,
             status_json TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(ticker, observation_date),
+            FOREIGN KEY (thesis_id) REFERENCES theses(id)
+        )
+        """
+    )
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN evidence_discovery_status TEXT DEFAULT 'pending'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN candidate_count INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE evaluation_preparations ADD COLUMN discovery_warnings_json TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evaluation_candidate_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            preparation_id INTEGER NOT NULL,
+            thesis_id INTEGER,
+            title TEXT,
+            source TEXT,
+            document_type TEXT,
+            publication_date TEXT,
+            reference_url TEXT,
+            reference_id TEXT,
+            discovery_status TEXT,
+            provider_name TEXT,
+            warnings_json TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(preparation_id, provider_name, reference_id, title),
+            FOREIGN KEY (preparation_id) REFERENCES evaluation_preparations(id),
             FOREIGN KEY (thesis_id) REFERENCES theses(id)
         )
         """
@@ -608,6 +649,38 @@ def get_overview_metrics(thesis_id):
         "investment_pillars_completed": investment_pillars_completed,
         "audit_event_count": audit_event_count,
     }
+
+
+def get_candidate_evidence_for_thesis(thesis_id):
+    """Return the most recent discovered candidate evidence metadata for a thesis."""
+    return fetch_dataframe(
+        """
+        SELECT
+            ecd.id,
+            ecd.preparation_id,
+            ecd.thesis_id,
+            ecd.title,
+            ecd.source,
+            ecd.document_type,
+            ecd.publication_date,
+            ecd.reference_url,
+            ecd.reference_id,
+            ecd.discovery_status,
+            ecd.provider_name,
+            ecd.warnings_json,
+            ecd.created_at
+        FROM evaluation_candidate_documents ecd
+        JOIN (
+            SELECT id
+            FROM evaluation_preparations
+            WHERE thesis_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+        ) latest_prep ON latest_prep.id = ecd.preparation_id
+        ORDER BY ecd.created_at DESC, ecd.id DESC
+        """,
+        (int(thesis_id),),
+    )
 
 
 def build_thesis_json(thesis_id):
