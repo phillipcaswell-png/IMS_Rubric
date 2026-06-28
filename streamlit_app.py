@@ -224,8 +224,9 @@ st.markdown("""
 /* Main content area */
 .main .block-container {
     background-color: #0A0A0F;
-    padding: 2rem 3rem;
-    max-width: 1100px;
+    padding: 1.25rem 2rem 1.5rem;
+    max-width: 1200px;
+    overflow-x: hidden;
 }
 
 /* Sidebar */
@@ -420,6 +421,96 @@ hr {
     color: #C5A028;
 }
 
+.athena-page-shell {
+    margin-bottom: 0.9rem;
+}
+
+.athena-page-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.athena-page-title {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 2rem;
+    line-height: 1.1;
+    font-weight: 700;
+    color: #E8E6E0;
+    margin-bottom: 0.25rem;
+}
+
+.athena-page-subtitle {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 0.98rem;
+    color: #A8ACB8;
+    margin-bottom: 0.1rem;
+}
+
+.athena-section-title {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #E8E6E0;
+    margin: 0.35rem 0 0.2rem 0;
+}
+
+.athena-section-subtitle {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 0.84rem;
+    color: #8D95A8;
+    margin-bottom: 0.75rem;
+}
+
+.athena-status-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid #2A3348;
+    background: rgba(16, 24, 39, 0.7);
+    color: #D8DCE6;
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.28rem 0.7rem;
+    margin-right: 0.35rem;
+    margin-bottom: 0.35rem;
+}
+
+.athena-status-chip.gold {
+    border-color: rgba(197, 160, 40, 0.5);
+    background: rgba(197, 160, 40, 0.12);
+    color: #F2D06B;
+}
+
+.athena-status-chip.success {
+    border-color: rgba(74, 181, 108, 0.45);
+    background: rgba(74, 181, 108, 0.12);
+    color: #95E0A9;
+}
+
+.athena-status-chip.warning {
+    border-color: rgba(240, 193, 74, 0.45);
+    background: rgba(240, 193, 74, 0.12);
+    color: #F7DB8A;
+}
+
+.athena-status-chip.danger {
+    border-color: rgba(255, 82, 82, 0.45);
+    background: rgba(255, 82, 82, 0.12);
+    color: #FF9898;
+}
+
+.athena-footer {
+    color: #8D95A8;
+    text-align: center;
+    font-size: 0.78rem;
+    margin-top: 1rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid #1E1E2E;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -442,12 +533,71 @@ def empty_state(message):
     st.info(message)
 
 
+def render_status_chip(label, tone="neutral"):
+    """Render a compact status chip for page shells and summaries."""
+    tone_class = {
+        "neutral": "",
+        "gold": "gold",
+        "success": "success",
+        "warning": "warning",
+        "danger": "danger",
+    }.get(tone, "")
+    class_name = "athena-status-chip"
+    if tone_class:
+        class_name = f"{class_name} {tone_class}"
+    st.markdown(f"<span class='{class_name}'>{label}</span>", unsafe_allow_html=True)
+
+
+def render_governance_badge():
+    """Render the governance badge used in compact page shells."""
+    st.markdown(
+        "<span class='athena-status-chip gold'>Evidence-bounded • Reproducible • Auditable</span>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_page_header(title, subtitle=None, eyebrow=None):
+    """Render a compact routed-page header."""
+    st.markdown("<div class='athena-page-shell'>", unsafe_allow_html=True)
+    if eyebrow:
+        st.markdown(f"<div class='athena-page-eyebrow'><span class='athena-status-chip gold'>{eyebrow}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='athena-page-title'>{title}</div>", unsafe_allow_html=True)
+    if subtitle:
+        st.markdown(f"<div class='athena-page-subtitle'>{subtitle}</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_section_title(title, subtitle=None):
+    """Render a compact section title for task-centric pages."""
+    st.markdown(f"<div class='athena-section-title'>{title}</div>", unsafe_allow_html=True)
+    if subtitle:
+        st.markdown(f"<div class='athena-section-subtitle'>{subtitle}</div>", unsafe_allow_html=True)
+
+
+def render_summary_row(title, subtitle, tiles):
+    """Render a compact summary row above task tables."""
+    with st.container(border=True):
+        render_section_title(title, subtitle)
+        if not tiles:
+            return
+        columns = st.columns(len(tiles))
+        for col, tile in zip(columns, tiles):
+            with col:
+                metric_card(tile["label"], tile["value"])
+
+
+def render_athena_footer():
+    """Render the small governed footer used on routed pages."""
+    st.markdown(
+        "<div class='athena-footer'>Governed by Athena Charter v1.0 • Evidence-bounded • Reproducible • Auditable</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_workspace_header(analyst_name=None, primary_text="Continue where you left off."):
     """Render Workspace header copy in approved order."""
-    st.markdown("## Athena")
-    if analyst_name:
-        st.markdown(f"Good morning, {analyst_name}.")
-    st.caption(primary_text)
+    eyebrow = f"Analyst: {analyst_name}" if analyst_name else None
+    render_page_header("Active Evaluation", primary_text, eyebrow=eyebrow)
 
 
 def render_kpi_tile(label, value):
@@ -2653,6 +2803,303 @@ def render_sidebar_actions():
         st.rerun()
 
 
+def format_display_value(value, fallback="Not available"):
+    """Normalize user-facing values for Home display."""
+    text = _display_text(value)
+    return text if text else fallback
+
+
+def derive_decision_label(row):
+    """Return governed decision label without creating new governed outcomes."""
+    recommendation = _display_text((row or {}).get("recommendation"))
+    if not recommendation:
+        return "NO DECISION"
+    return recommendation.upper()
+
+
+def derive_confidence_display(row):
+    """Return confidence from existing persisted fields only."""
+    candidate_keys = [
+        "decision_confidence",
+        "confidence",
+        "confidence_percent",
+        "confidence_pct",
+        "confidence_label",
+        "inference_confidence",
+    ]
+    for key in candidate_keys:
+        raw_value = (row or {}).get(key)
+        if raw_value is None:
+            continue
+        if isinstance(raw_value, (int, float)):
+            numeric_value = float(raw_value)
+            if numeric_value <= 1.0:
+                numeric_value *= 100.0
+            if 0.0 <= numeric_value <= 100.0:
+                return f"{numeric_value:.0f}%"
+            continue
+
+        text = str(raw_value).strip()
+        if not text:
+            continue
+        try:
+            numeric_value = float(text)
+            if numeric_value <= 1.0:
+                numeric_value *= 100.0
+            if 0.0 <= numeric_value <= 100.0:
+                return f"{numeric_value:.0f}%"
+        except ValueError:
+            return text
+    return "Not available"
+
+
+def derive_home_health(row):
+    """Build a Home-only health summary without modifying governed state."""
+    recommendation = _display_text((row or {}).get("recommendation")).lower()
+    avg_score = (row or {}).get("avg_score")
+    completed_ratio = float((row or {}).get("completion_ratio") or 0.0)
+
+    risky_terms = {"avoid", "sell", "reduce", "high risk"}
+    mixed_terms = {"observe", "hold", "watch"}
+    strong_terms = {"buy", "ready", "high conviction", "ready with conditions", "buy with conditions"}
+
+    if not recommendation:
+        if completed_ratio < 0.25:
+            return "No Decision"
+        return "Mixed"
+
+    if recommendation in risky_terms:
+        if recommendation in {"avoid", "sell", "high risk"}:
+            return "High Risk"
+        return "Weak Candidate"
+
+    if recommendation in mixed_terms:
+        return "Mixed"
+
+    if recommendation in strong_terms:
+        if isinstance(avg_score, (int, float)) and float(avg_score) >= 7.0 and completed_ratio >= 0.7:
+            return "Strong Candidate"
+        return "Mixed"
+
+    return "Mixed"
+
+
+def derive_health_bucket(row):
+    """Alias for portfolio summary bucketing."""
+    return derive_home_health(row)
+
+
+def derive_lifecycle_display(row):
+    """Derive lifecycle from existing workflow and governed readiness state."""
+    if bool((row or {}).get("framework_review_eligible")):
+        return "Framework Review"
+
+    has_decision = bool((row or {}).get("has_decision"))
+    if has_decision and bool((row or {}).get("has_review_record")):
+        return "Historical Review"
+
+    prep_readiness = _display_text((row or {}).get("prep_readiness")).lower()
+    prep_lifecycle = _display_text((row or {}).get("prep_lifecycle")).lower()
+    if prep_readiness in {"pending", "preparing"} or prep_lifecycle in {"preparing", "thesis_ready"}:
+        return "Preparation"
+
+    if bool((row or {}).get("decision_eligible")) or has_decision:
+        return "Decision"
+
+    return "Assessment"
+
+
+def derive_next_action_display(row):
+    """Provide one clear analyst next action from existing persisted state."""
+    if bool((row or {}).get("framework_review_eligible")):
+        return "Framework Review Consideration Eligible"
+
+    if bool((row or {}).get("has_decision")) and bool((row or {}).get("review_due")):
+        return "Review Historical Outcome"
+
+    if bool((row or {}).get("decision_eligible")) and not bool((row or {}).get("has_decision")):
+        return "Record Decision"
+
+    prep_readiness = _display_text((row or {}).get("prep_readiness")).lower()
+    discovery_status = _display_text((row or {}).get("evidence_discovery_status")).lower()
+    acquisition_status = _display_text((row or {}).get("evidence_acquisition_status")).lower()
+    extraction_status = _display_text((row or {}).get("extraction_status")).lower()
+
+    if prep_readiness in {"pending", "preparing"}:
+        if discovery_status in {"pending", "preparing"}:
+            return "Evidence Discovery"
+        if acquisition_status in {"pending", "preparing"}:
+            return "Evidence Acquisition"
+        if extraction_status in {"pending", "preparing"}:
+            return "Continue Evaluation"
+
+    business_completed = int((row or {}).get("business_completed") or 0)
+    investment_completed = int((row or {}).get("investment_completed") or 0)
+    if business_completed < 7:
+        return "Complete Business Assessment"
+    if investment_completed < 4:
+        return "Continue Evaluation"
+
+    return "Continue Evaluation"
+
+
+def render_company_logo_placeholder(company_name, ticker=None):
+    """Render internal placeholder identifier blocks for Home cards."""
+    ticker_text = _display_text(ticker).upper()
+    company_text = _display_text(company_name)
+    initials = "".join(word[0] for word in company_text.split()[:4] if word)[:4].upper()
+    label = ticker_text if ticker_text else (initials if initials else "ATH")
+
+    palette_class = "home-logo-generic"
+    if ticker_text == "EK" or "kodak" in company_text.lower():
+        palette_class = "home-logo-kodak"
+    elif ticker_text == "NVDA" or "nvidia" in company_text.lower():
+        palette_class = "home-logo-nvda"
+    elif ticker_text == "QCOM" or "qualcomm" in company_text.lower():
+        palette_class = "home-logo-qcom"
+    elif ticker_text == "META" or "meta" in company_text.lower():
+        palette_class = "home-logo-meta"
+
+    st.markdown(
+        f"<div class='home-logo-block {palette_class}'>{label}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_home_evaluation_card(row, button_key):
+    """Render one Needs Attention card and return True if Continue clicked."""
+    health_value = derive_health_bucket(row)
+    health_class = {
+        "Strong Candidate": "health-strong",
+        "Mixed": "health-mixed",
+        "Weak Candidate": "health-weak",
+        "High Risk": "health-risk",
+        "No Decision": "health-none",
+    }.get(health_value, "health-none")
+
+    decision_label = derive_decision_label(row)
+    confidence_text = derive_confidence_display(row)
+    lifecycle_text = derive_lifecycle_display(row)
+    next_action_text = derive_next_action_display(row)
+    recommendation_text = format_display_value((row or {}).get("recommendation"), fallback="Not available")
+    health_score = (row or {}).get("avg_score")
+    health_score_text = f"{float(health_score):.1f} / 10" if isinstance(health_score, (int, float)) else "Not available"
+
+    with st.container(border=True):
+        c_logo, c_body, c_cta = st.columns([1.1, 5.2, 1.4])
+        with c_logo:
+            render_company_logo_placeholder((row or {}).get("company_name"), (row or {}).get("ticker"))
+        with c_body:
+            st.markdown(
+                f"<div class='home-card-company'>{format_display_value((row or {}).get('company_name'))}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-ticker'>{format_display_value((row or {}).get('ticker'))}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<span class='home-chip {health_class}'>Investment Health: {health_value}</span> "
+                f"<span class='home-chip home-chip-muted'>Health Score: {health_score_text}</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-primary-decision'>{decision_label}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-detail'>Recommendation Status: {recommendation_text}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-detail'>Confidence: {confidence_text} | Lifecycle: {lifecycle_text}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-next-action'>Next action: {next_action_text}</div>",
+                unsafe_allow_html=True,
+            )
+        with c_cta:
+            return st.button("Continue", key=button_key, use_container_width=True)
+    return False
+
+
+def render_current_evaluation_panel(row):
+    """Render focused panel for one active/current evaluation."""
+    if not isinstance(row, dict):
+        empty_state("No current evaluation selected.")
+        return False
+
+    decision_recorded = "Decision Recorded" if bool(row.get("has_decision")) else "Decision Not Recorded"
+    review_status = "Ready for Historical Review" if bool(row.get("has_decision")) else "Assessment In Progress"
+    lifecycle_text = derive_lifecycle_display(row)
+    next_action_text = derive_next_action_display(row)
+
+    with st.container(border=True):
+        col_logo, col_info, col_action = st.columns([1.1, 5.4, 1.5])
+        with col_logo:
+            render_company_logo_placeholder(row.get("company_name"), row.get("ticker"))
+        with col_info:
+            st.markdown(
+                f"<div class='home-card-company'>{format_display_value(row.get('company_name'))}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<span class='home-chip home-chip-muted'>{decision_recorded}</span> "
+                f"<span class='home-chip home-chip-muted'>{review_status}</span>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-detail'>Decision: {derive_decision_label(row)} | Confidence: {derive_confidence_display(row)}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-detail'>Lifecycle: {lifecycle_text}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='home-card-next-action'>Next action: {next_action_text}</div>",
+                unsafe_allow_html=True,
+            )
+        with col_action:
+            return st.button("Continue Evaluation", key=f"current_eval_continue_{int(row.get('thesis_id'))}", use_container_width=True)
+    return False
+
+
+def render_home_sidebar_panels(rows):
+    """Render Home right-rail summary panels."""
+    rows = rows or []
+    health_counts = {
+        "Strong Candidate": 0,
+        "Mixed": 0,
+        "Weak Candidate": 0,
+        "High Risk": 0,
+        "No Decision": 0,
+    }
+    lifecycle_counts = {
+        "Preparation": 0,
+        "Assessment": 0,
+        "Decision": 0,
+        "Historical Review": 0,
+        "Framework Review": 0,
+    }
+
+    for row in rows:
+        health_counts[derive_health_bucket(row)] = health_counts.get(derive_health_bucket(row), 0) + 1
+        lifecycle_name = derive_lifecycle_display(row)
+        lifecycle_counts[lifecycle_name] = lifecycle_counts.get(lifecycle_name, 0) + 1
+
+    with st.container(border=True):
+        st.markdown("### Portfolio Health Summary")
+        for label, value in health_counts.items():
+            st.write(f"{label}: {value}")
+
+    with st.container(border=True):
+        st.markdown("### Pipeline by Lifecycle")
+        for label, value in lifecycle_counts.items():
+            st.write(f"{label}: {value}")
+
+
 # Sidebar navigation
 with st.sidebar:
     current_view = st.session_state.get("current_view", "Home")
@@ -3047,153 +3494,121 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
             ]
         ]
 
-    st.markdown("# Athena")
-    st.caption("Governed Investment Intelligence")
-    st.markdown("Prepare. Review. Decide.")
-
-    section_header("Continue Working")
-    active_evaluation_thesis_id = _resolve_active_evaluation_thesis_id(theses_df, latest_prep_by_thesis_id)
-    active_evaluation_request = st.session_state.get("active_evaluation_request")
-    active_resolution = resolve_active_evaluation_identity(
-        current_active_thesis_id=active_evaluation_thesis_id,
-        available_thesis_ids=theses_df["id"].tolist() if "id" in theses_df else [],
-        active_request=active_evaluation_request,
-        latest_preparation_by_thesis=latest_prep_by_thesis_id,
-        engine_preparation_status=st.session_state.get("engine_preparation_status"),
+    st.markdown(
+        """
+        <style>
+        .home-root {
+            padding-top: 0.25rem;
+        }
+        .home-greeting {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #E8E6E0;
+            margin-bottom: 0.2rem;
+        }
+        .home-subtitle {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 1.0rem;
+            color: #A8ACB8;
+            margin-bottom: 0.9rem;
+        }
+        .home-date {
+            text-align: right;
+            color: #A8ACB8;
+            font-size: 0.88rem;
+            padding-top: 0.7rem;
+        }
+        .home-section-title {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: #E8E6E0;
+            margin: 0.3rem 0 0.75rem 0;
+        }
+        .home-logo-block {
+            width: 52px;
+            height: 52px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #FFFFFF;
+            border: 1px solid rgba(255,255,255,0.15);
+            margin-top: 0.15rem;
+        }
+        .home-logo-kodak { background: linear-gradient(135deg, #E9B913 0%, #D63A2B 100%); }
+        .home-logo-nvda { background: linear-gradient(135deg, #76B900 0%, #0A0A0A 100%); }
+        .home-logo-qcom { background: linear-gradient(135deg, #2B7DFF 0%, #103B7A 100%); }
+        .home-logo-meta { background: linear-gradient(135deg, #2D88FF 0%, #1B4E8F 100%); }
+        .home-logo-generic { background: linear-gradient(135deg, #586274 0%, #313848 100%); }
+        .home-card-company {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #E8E6E0;
+            margin-bottom: 0.15rem;
+        }
+        .home-card-ticker {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 0.9rem;
+            color: #8E95A5;
+            margin-bottom: 0.55rem;
+        }
+        .home-chip {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 0.2rem 0.65rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-right: 0.35rem;
+            margin-bottom: 0.35rem;
+        }
+        .home-chip-muted {
+            color: #B8BDCA;
+            border: 1px solid #2A3348;
+            background: rgba(16, 24, 39, 0.7);
+        }
+        .health-strong { color: #56C267; border: 1px solid #245A32; background: rgba(23, 85, 37, 0.22); }
+        .health-mixed { color: #F0C14A; border: 1px solid #6A531D; background: rgba(109, 77, 22, 0.22); }
+        .health-weak { color: #FF7272; border: 1px solid #6E2B2B; background: rgba(102, 27, 27, 0.22); }
+        .health-risk { color: #FF4F4F; border: 1px solid #7A2323; background: rgba(126, 26, 26, 0.24); }
+        .health-none { color: #A8ACB8; border: 1px solid #394154; background: rgba(49, 57, 74, 0.22); }
+        .home-card-primary-decision {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            font-size: 1.02rem;
+            font-weight: 700;
+            color: #E6B12D;
+            margin-top: 0.2rem;
+        }
+        .home-card-detail {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            color: #B9BFCD;
+            font-size: 0.86rem;
+            margin-top: 0.15rem;
+        }
+        .home-card-next-action {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+            color: #E8E6E0;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-top: 0.45rem;
+        }
+        .home-footer-note {
+            color: #8D95A8;
+            text-align: center;
+            font-size: 0.8rem;
+            margin-top: 0.9rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
-    if active_resolution.get("pending_request") and isinstance(active_evaluation_request, dict):
-        pending_ticker = str(active_evaluation_request.get("ticker", "")).strip().upper()
-        pending_company = str(active_evaluation_request.get("company_name", "")).strip() or pending_ticker or "Submitted Evaluation"
-        pending_title = pending_company if not pending_ticker else f"{pending_company} ({pending_ticker})"
-        card_col, action_col = st.columns([5, 1])
-        with card_col:
-            st.markdown(
-                "**Active Evaluation**  \n"
-                f"**{pending_title}**  \n"
-                "Current lifecycle stage: Preparation  \n"
-                "Workflow status: Preparing  \n"
-                "Recommendation status: No Decision  \n"
-                "Progress: 0 / 11  \n"
-                "Next action: Athena is preparing this evaluation."
-            )
-        with action_col:
-            st.button("Preparing", key="home_continue_pending_active", use_container_width=True, disabled=True)
-
-    continue_rows = watchlist_rows_sorted if watchlist_rows_sorted else sorted(portfolio_rows, key=lambda row: row["Company"])
-    continue_rows = prioritize_active_evaluation_rows(continue_rows, active_evaluation_thesis_id)
-    if not continue_rows:
-        empty_state("No active evaluations. Start a new evaluation below.")
-    else:
-        for idx, row in enumerate(continue_rows[:5]):
-            thesis_id = int(row["thesis_id"])
-            is_active = active_evaluation_thesis_id is not None and int(active_evaluation_thesis_id) == thesis_id
-            prep_status = latest_prep_by_thesis_id.get(thesis_id, {})
-            workflow_state = derive_workflow_ownership_state(prep_status)
-            workflow_status = str(workflow_state.get("status", "Preparing")).strip()
-            workflow_reason = str(workflow_state.get("reason", "")).strip()
-
-            gate = gate_results_by_thesis_id.get(thesis_id, {"completed": 0, "required": 11, "eligible": False})
-            latest_decision_row = latest_decision_by_thesis_id.get(thesis_id)
-            recommendation_status = "No Decision"
-            if latest_decision_row is not None and pd.notna(latest_decision_row.get("recommendation")) and str(latest_decision_row.get("recommendation")).strip():
-                recommendation_status = str(latest_decision_row.get("recommendation")).strip()
-            lifecycle_stage = "Assessment"
-            if gate.get("eligible"):
-                lifecycle_stage = "Decision"
-            elif int(gate.get("completed", 0)) == 0:
-                lifecycle_stage = "Preparation"
-
-            next_action_text = row.get("Action Required", "Continue assessment")
-            if is_active:
-                if workflow_status == "Preparing":
-                    next_action_text = "Athena is preparing this evaluation."
-                elif workflow_status == "Ready":
-                    next_action_text = "Continue Evaluation"
-                elif workflow_status == "Failed":
-                    next_action_text = "Review failure and retry preparation."
-
-            card_col, action_col = st.columns([5, 1])
-            with card_col:
-                active_marker = "**Active Evaluation**  \n" if is_active else ""
-                st.markdown(
-                    active_marker +
-                    f"**{row['Company']}**  \n"
-                    f"Current lifecycle stage: {lifecycle_stage}  \n"
-                    f"Workflow status: {workflow_status if is_active else '—'}  \n"
-                    f"Recommendation status: {recommendation_status}  \n"
-                    f"Progress: {gate.get('completed', 0)} / {gate.get('required', 11)}  \n"
-                    f"Next action: {next_action_text}"
-                )
-                if is_active and workflow_status == "Failed" and workflow_reason:
-                    st.caption(f"Failure reason: {workflow_reason}")
-            with action_col:
-                action_label = "Continue Evaluation" if is_active else "Continue"
-                if st.button(action_label, key=f"home_continue_{idx}_{thesis_id}", use_container_width=True):
-                    st.session_state["selected_thesis_id"] = thesis_id
-                    st.session_state["current_view"] = "Workspace"
-                    st.rerun()
-
-            if is_active and workflow_status == "Failed":
-                retry_col, _ = st.columns([1, 5])
-                with retry_col:
-                    if st.button("Retry Preparation", key=f"home_retry_{thesis_id}", use_container_width=True):
-                        retry_status = prepare_evaluation(
-                            ticker=prep_status.get("ticker", row.get("Ticker", "")),
-                            observation_date=prep_status.get("observation_date", datetime.now().date()),
-                            company_name=row.get("Company", ""),
-                            reviewer="Operational Evaluation Engine",
-                        )
-                        st.session_state["engine_preparation_status"] = retry_status
-                        retry_thesis_id = retry_status.get("thesis_id")
-                        if retry_thesis_id is not None:
-                            st.session_state["active_evaluation_thesis_id"] = int(retry_thesis_id)
-                            st.session_state["selected_thesis_id"] = int(retry_thesis_id)
-                        st.session_state["current_view"] = "Home"
-                        st.rerun()
-
-    st.divider()
-    section_header("Start New Evaluation")
-    with st.form("home_prepare_evaluation_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            ticker = st.text_input("Ticker", placeholder="e.g., AAPL")
-        with col2:
-            observation_date = st.date_input(
-                "Observation Date",
-                value=datetime.now().date(),
-                min_value=datetime(1900, 1, 1).date(),
-            )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            company_name = st.text_input("Company Name", placeholder="Optional display name")
-        with col2:
-            reviewer = st.text_input("Reviewer", placeholder="Name of reviewer")
-
-        submitted = st.form_submit_button("Prepare Evaluation", use_container_width=True)
-        if submitted:
-            if not ticker.strip():
-                st.error("Ticker is required.")
-            else:
-                pending_ticker = ticker.strip().upper()
-                st.session_state["active_evaluation_request"] = {
-                    "ticker": pending_ticker,
-                    "observation_date": observation_date.isoformat(),
-                    "company_name": company_name.strip() if company_name else "",
-                    "reviewer": reviewer.strip() if reviewer else "",
-                }
-                st.session_state["active_evaluation_thesis_id"] = None
-                st.session_state["engine_preparation_status"] = None
-                st.session_state["pending_prepare_request"] = {
-                    "ticker": pending_ticker,
-                    "observation_date": observation_date,
-                    "company_name": company_name,
-                    "reviewer": reviewer,
-                }
-                st.session_state["current_view"] = "Home"
-                st.rerun()
-
+    # Keep existing preparation flow behavior unchanged.
     pending_prepare_request = st.session_state.get("pending_prepare_request")
     if isinstance(pending_prepare_request, dict):
         with st.status("Preparing evaluation...", expanded=False):
@@ -3212,88 +3627,201 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
         st.session_state["current_view"] = "Home"
         st.rerun()
 
-    st.divider()
-    section_header("Workflow Inbox")
-    inbox_tasks = compute_hermes_inbox()
-    if inbox_tasks:
-        inbox_rows = []
-        for task in inbox_tasks:
-            task_type = str(task.get("task_type", "")).strip()
-            workflow_state = "Ready for Analyst"
-            if "promotion" in task_type.lower():
-                workflow_state = "Awaiting Promotion"
-            elif "score" in task_type.lower() or "assessment" in task_type.lower():
-                workflow_state = "Awaiting Scores"
-            elif "decision" in task_type.lower():
-                workflow_state = "Decision Ready"
-            elif "review" in task_type.lower():
-                workflow_state = "Awaiting Review"
-
-            inbox_rows.append(
-                {
-                    "Priority": int(task["priority"]),
-                    "Company": task["company_name"],
-                    "Workflow State": workflow_state,
-                    "Task": task_type,
-                    "Action": task["action"],
-                    "Due Date": task["due_date"] if task["due_date"] else "—",
-                }
-            )
-
-        inbox_display_df = pd.DataFrame(inbox_rows).sort_values(
-            by=["Priority", "Due Date", "Company"],
-            ascending=[True, True, True],
-        )
-        st.dataframe(inbox_display_df, use_container_width=True)
-    else:
-        st.info("No workflow items currently require analyst attention.")
-
-    st.divider()
-    section_header("Portfolio Summary")
-    active_evaluations = int(theses_df[theses_df["status"].fillna("") != STATUS_CLOSED]["id"].count())
-    ready_for_analyst = sum(1 for status in readiness_by_thesis_id.values() if status == "ready_for_analyst")
-    preparing_count = sum(1 for status in readiness_by_thesis_id.values() if status in ["pending", "preparing"]) 
-    awaiting_decision = sum(1 for gate in gate_results_by_thesis_id.values() if gate.get("eligible"))
-    completed_count = int(theses_df[theses_df["status"].fillna("") == STATUS_CLOSED]["id"].count())
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        metric_card("Active Evaluations", active_evaluations)
-    with c2:
-        metric_card("Ready for Analyst", ready_for_analyst)
-    with c3:
-        metric_card("Preparing", preparing_count)
-    with c4:
-        metric_card("Awaiting Decision", awaiting_decision)
-    with c5:
-        metric_card("Completed", completed_count)
-
-    st.divider()
-    section_header("Recent Activity")
-    recent_activity_df = fetch_dataframe(
+    score_rollup_df = fetch_dataframe(
         """
-        SELECT created_at, event_type, event_description, created_by
-        FROM thesis_events
-        ORDER BY created_at DESC
-        LIMIT 20
+        SELECT
+            thesis_id,
+            SUM(CASE WHEN pillar_id LIKE 'B%' THEN 1 ELSE 0 END) AS business_completed,
+            SUM(CASE WHEN pillar_id LIKE 'I%' THEN 1 ELSE 0 END) AS investment_completed,
+            ROUND(AVG(CASE WHEN score IS NOT NULL THEN score END), 1) AS avg_score,
+            MAX(COALESCE(inference_confidence, '')) AS inference_confidence
+        FROM pillar_scores
+        GROUP BY thesis_id
         """
     )
-    if recent_activity_df.empty:
-        empty_state("No recent analyst actions recorded yet.")
-    else:
-        display_activity_df = recent_activity_df.rename(
-            columns={
-                "created_at": "Timestamp",
-                "event_type": "Event",
-                "event_description": "Description",
-                "created_by": "By",
-            }
+    score_rollup_by_thesis = {
+        int(row["thesis_id"]): {
+            "business_completed": int(row["business_completed"]) if pd.notna(row["business_completed"]) else 0,
+            "investment_completed": int(row["investment_completed"]) if pd.notna(row["investment_completed"]) else 0,
+            "avg_score": float(row["avg_score"]) if pd.notna(row["avg_score"]) else None,
+            "inference_confidence": _display_text(row.get("inference_confidence")),
+        }
+        for _, row in score_rollup_df.iterrows()
+    } if not score_rollup_df.empty else {}
+
+    review_presence_df = fetch_dataframe("SELECT DISTINCT thesis_id FROM thesis_reviews")
+    reviewed_ids = set(review_presence_df["thesis_id"].astype(int).tolist()) if not review_presence_df.empty else set()
+
+    active_evaluation_thesis_id = _resolve_active_evaluation_thesis_id(theses_df, latest_prep_by_thesis_id)
+
+    home_rows = []
+    for _, thesis_row in theses_df.iterrows():
+        tid = int(thesis_row["id"])
+        gate = gate_results_by_thesis_id.get(tid, {"completed": 0, "required": 11, "eligible": False})
+        latest_decision_row = latest_decision_by_thesis_id.get(tid)
+        prep_status = latest_prep_by_thesis_id.get(tid, {})
+        score_rollup = score_rollup_by_thesis.get(tid, {})
+
+        recommendation = ""
+        if latest_decision_row is not None and pd.notna(latest_decision_row.get("recommendation")):
+            recommendation = str(latest_decision_row.get("recommendation")).strip()
+
+        next_review_date = None
+        review_due = False
+        if latest_decision_row is not None and pd.notna(latest_decision_row.get("next_review_date")):
+            next_review_date = pd.to_datetime(latest_decision_row.get("next_review_date")).date()
+            review_due = next_review_date < today_date
+
+        business_completed = int(score_rollup.get("business_completed") or 0)
+        investment_completed = int(score_rollup.get("investment_completed") or 0)
+        completion_ratio = min(max((business_completed + investment_completed) / 11.0, 0.0), 1.0)
+        workflow_state = derive_workflow_ownership_state(prep_status)
+
+        row = {
+            "thesis_id": tid,
+            "company_name": thesis_row.get("company_name"),
+            "ticker": thesis_row.get("ticker"),
+            "status": thesis_row.get("status"),
+            "recommendation": recommendation,
+            "has_decision": latest_decision_row is not None,
+            "decision_eligible": bool(gate.get("eligible")),
+            "framework_review_eligible": tid in framework_eligible_ids,
+            "has_review_record": tid in reviewed_ids,
+            "review_due": review_due,
+            "next_review_date": next_review_date.isoformat() if next_review_date is not None else "",
+            "business_completed": business_completed,
+            "investment_completed": investment_completed,
+            "completion_ratio": completion_ratio,
+            "avg_score": score_rollup.get("avg_score"),
+            "inference_confidence": score_rollup.get("inference_confidence", ""),
+            "prep_readiness": prep_status.get("readiness_status", ""),
+            "prep_lifecycle": prep_status.get("lifecycle_state", ""),
+            "evidence_discovery_status": prep_status.get("evidence_discovery_status", ""),
+            "evidence_acquisition_status": prep_status.get("acquisition_status", ""),
+            "extraction_status": prep_status.get("extraction_status", ""),
+            "workflow_status": workflow_state.get("status", "Preparing"),
+            "workflow_reason": workflow_state.get("reason", ""),
+            "is_active": active_evaluation_thesis_id is not None and int(active_evaluation_thesis_id) == tid,
+        }
+
+        lifecycle = derive_lifecycle_display(row)
+        lifecycle_rank = {
+            "Preparation": 0,
+            "Assessment": 1,
+            "Decision": 2,
+            "Historical Review": 3,
+            "Framework Review": 4,
+        }.get(lifecycle, 5)
+
+        urgency_rank = 4
+        if row["is_active"]:
+            urgency_rank = 0
+        elif row["framework_review_eligible"]:
+            urgency_rank = 1
+        elif row["review_due"]:
+            urgency_rank = 2
+        elif row["decision_eligible"] and not row["has_decision"]:
+            urgency_rank = 3
+
+        row["priority_key"] = (urgency_rank, lifecycle_rank, format_display_value(row.get("company_name")))
+        home_rows.append(row)
+
+    home_rows = sorted(home_rows, key=lambda row: row["priority_key"])
+    needs_attention_rows = [row for row in home_rows if format_display_value(row.get("status"), "") != STATUS_CLOSED][:5]
+
+    current_eval_row = None
+    for row in home_rows:
+        if row.get("is_active"):
+            current_eval_row = row
+            break
+    if current_eval_row is None and home_rows:
+        current_eval_row = home_rows[0]
+
+    hour = datetime.now().hour
+    greeting = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
+
+    st.markdown("<div class='home-root'></div>", unsafe_allow_html=True)
+    hdr_left, hdr_right = st.columns([4.8, 1.2])
+    with hdr_left:
+        st.markdown(f"<div class='home-greeting'>{greeting}, Phillip</div>", unsafe_allow_html=True)
+        st.markdown("<div class='home-subtitle'>Here's what needs your attention.</div>", unsafe_allow_html=True)
+    with hdr_right:
+        st.markdown(
+            f"<div class='home-date'>{datetime.now().strftime('%B %d, %Y • %I:%M %p')}</div>",
+            unsafe_allow_html=True,
         )
-        st.dataframe(display_activity_df, use_container_width=True)
+
+    main_col, right_col = st.columns([3.9, 1.35], gap="large")
+    with main_col:
+        st.markdown(
+            f"<div class='home-section-title'>Needs Attention ({len(needs_attention_rows)})</div>",
+            unsafe_allow_html=True,
+        )
+        if not needs_attention_rows:
+            empty_state("No active evaluations currently need attention.")
+        else:
+            for idx, row in enumerate(needs_attention_rows):
+                continue_clicked = render_home_evaluation_card(row, button_key=f"home_cmd_continue_{idx}_{int(row['thesis_id'])}")
+                if continue_clicked:
+                    st.session_state["selected_thesis_id"] = int(row["thesis_id"])
+                    st.session_state["current_view"] = "Workspace"
+                    st.rerun()
+
+        st.markdown("<div class='home-section-title' style='margin-top:0.95rem;'>Current Evaluation</div>", unsafe_allow_html=True)
+        if render_current_evaluation_panel(current_eval_row):
+            st.session_state["selected_thesis_id"] = int(current_eval_row["thesis_id"])
+            st.session_state["current_view"] = "Workspace"
+            st.rerun()
+
+        st.markdown("<div class='home-section-title' style='margin-top:0.95rem;'>Quick Actions</div>", unsafe_allow_html=True)
+        q1, q2, q3, q4 = st.columns(4)
+        with q1:
+            if st.button("New Evaluation", key="home_quick_new_eval", use_container_width=True):
+                st.session_state["current_view"] = "New Thesis"
+                st.session_state["selected_thesis_id"] = None
+                st.rerun()
+        with q2:
+            st.button("Upload Evidence", key="home_quick_upload_evidence", use_container_width=True, disabled=True)
+        with q3:
+            if st.button("Evidence Discovery", key="home_quick_evidence_discovery", use_container_width=True):
+                if current_eval_row is not None:
+                    st.session_state["selected_thesis_id"] = int(current_eval_row["thesis_id"])
+                    st.session_state["current_view"] = "Workspace"
+                    st.rerun()
+        with q4:
+            if st.button("Review Queue", key="home_quick_review_queue", use_container_width=True):
+                st.session_state["current_view"] = "Hermes Workflow Inbox"
+                st.session_state["selected_thesis_id"] = None
+                st.rerun()
+
+        st.markdown(
+            "<div class='home-footer-note'>Governed by Athena Charter v1.0 • Every decision is evidence-bounded, reproducible, and auditable.</div>",
+            unsafe_allow_html=True,
+        )
+
+    with right_col:
+        render_home_sidebar_panels(home_rows)
+
+        recent_activity_df = fetch_dataframe(
+            """
+            SELECT created_at, event_type, event_description
+            FROM thesis_events
+            ORDER BY created_at DESC
+            LIMIT 5
+            """
+        )
+        if not recent_activity_df.empty:
+            with st.container(border=True):
+                st.markdown("### Recent Activity")
+                for _, event_row in recent_activity_df.iterrows():
+                    event_type = format_display_value(event_row.get("event_type"))
+                    event_desc = format_display_value(event_row.get("event_description"))
+                    event_time = format_display_value(event_row.get("created_at"))
+                    st.write(f"{event_type}")
+                    st.caption(f"{event_desc} • {event_time}")
 
 elif st.session_state['current_view'] == 'Portfolio':
-    st.header("Portfolio")
-    st.caption("What companies am I responsible for?")
+    render_page_header("Portfolio", "What companies am I responsible for?", eyebrow="Portfolio")
 
     portfolio_df = fetch_dataframe(
         """
@@ -3372,6 +3900,17 @@ elif st.session_state['current_view'] == 'Portfolio':
     if inventory_df.empty:
         empty_state("No theses found.")
     else:
+        decision_ready_count = sum(1 for gate in gate_results_by_thesis_id.values() if gate.get("eligible"))
+        render_summary_row(
+            "Portfolio Overview",
+            "A compact view of the portfolio register and its current workload.",
+            [
+                {"label": "Total Evaluations", "value": len(inventory_df)},
+                {"label": "Decision-Ready", "value": decision_ready_count},
+                {"label": "Historical Reviews", "value": int(len(reviewed_ids))},
+                {"label": "Framework Eligible", "value": int(len(framework_eligible_ids))},
+            ],
+        )
         search_query = st.text_input("Search", placeholder="Company, ticker, or status")
         status_options = ["All"] + sorted(inventory_df["Current Status"].dropna().astype(str).unique().tolist())
         selected_status = st.selectbox("Filter", options=status_options)
@@ -3393,6 +3932,7 @@ elif st.session_state['current_view'] == 'Portfolio':
             filtered_df = filtered_df[filtered_df["Current Status"] == selected_status]
 
         filtered_df = filtered_df.sort_values(by=[selected_sort, "Company"], ascending=[True, True])
+        render_section_title("Evaluation Register", "Search, filter, and sort the current portfolio queue.")
         st.dataframe(filtered_df[["Company", "Ticker", "Current Status", "Lifecycle Stage", "Recommendation", "Last Updated", "Next Action"]], use_container_width=True)
 
         open_options = filtered_df["thesis_id"].astype(int).tolist()
@@ -3408,8 +3948,7 @@ elif st.session_state['current_view'] == 'Portfolio':
                 st.rerun()
 
 elif st.session_state['current_view'] == 'History':
-    st.header("History")
-    st.caption("What decisions have already been made?")
+    render_page_header("Validation History", "What decisions have already been made?", eyebrow="History")
 
     completed_df = fetch_dataframe(
         """
@@ -3420,7 +3959,7 @@ elif st.session_state['current_view'] == 'History':
         """,
         (STATUS_CLOSED,),
     )
-    section_header("Completed Evaluations")
+    render_section_title("Completed Evaluations")
     if completed_df.empty:
         st.info("No completed evaluations yet.")
     else:
@@ -3434,7 +3973,7 @@ elif st.session_state['current_view'] == 'History':
         ORDER BY d.created_at DESC
         """
     )
-    section_header("Historical Recommendations")
+    render_section_title("Historical Recommendations")
     if recommendation_df.empty:
         st.info("No decision records yet.")
     else:
@@ -3448,7 +3987,7 @@ elif st.session_state['current_view'] == 'History':
         ORDER BY tr.review_date DESC, tr.created_at DESC
         """
     )
-    section_header("Outcome Attribution")
+    render_section_title("Outcome Attribution")
     if outcome_df.empty:
         st.info("No outcome attribution records yet.")
     else:
@@ -3463,7 +4002,7 @@ elif st.session_state['current_view'] == 'History':
         LIMIT 250
         """
     )
-    section_header("Audit Trail")
+    render_section_title("Audit Trail")
     if audit_df.empty:
         st.info("No audit events recorded.")
     else:
@@ -3477,7 +4016,18 @@ elif st.session_state['current_view'] == 'History':
         ORDER BY tr.review_date DESC, tr.created_at DESC
         """
     )
-    section_header("Lessons Learned")
+
+    render_summary_row(
+        "History Overview",
+        "A validation-first view of completed work and post-decision records.",
+        [
+            {"label": "Completed Evaluations", "value": len(completed_df)},
+            {"label": "Historical Recommendations", "value": len(recommendation_df)},
+            {"label": "Outcome Reviews", "value": len(outcome_df)},
+            {"label": "Framework Eligible", "value": int(outcome_df["framework_review_eligible"].fillna(0).astype(int).sum()) if not outcome_df.empty and "framework_review_eligible" in outcome_df.columns else 0},
+        ],
+    )
+    render_section_title("Lessons Learned")
     if lessons_df.empty:
         st.info("No lessons learned captured yet.")
     else:
@@ -3581,8 +4131,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
     # Get thesis data
     thesis_id = st.session_state['selected_thesis_id']
     if thesis_id is None:
-        st.header("Workspace")
-        st.caption("What do I need to decide?")
+        render_page_header("Active Evaluation", "What needs judgment now?", eyebrow="Workspace")
 
         workspace_rows = []
         workspace_theses_df = fetch_dataframe(
@@ -3625,6 +4174,28 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
         if not workspace_rows:
             empty_state("No evaluations available. Start from Home using Prepare Evaluation.")
         else:
+            gate_ready_count = 0
+            framework_review_count = 0
+            gate_blocker_count = 0
+            for workspace_row in workspace_rows:
+                workspace_gate = validate_decision_gate(int(workspace_row["thesis_id"]))
+                if workspace_gate.get("eligible"):
+                    gate_ready_count += 1
+                if int(workspace_row["thesis_id"]) in framework_eligible_ids:
+                    framework_review_count += 1
+                if workspace_gate.get("missing"):
+                    gate_blocker_count += 1
+
+            render_summary_row(
+                "Evaluation Queue",
+                "Queue first, table second. Open the next evaluation directly from here.",
+                [
+                    {"label": "Requiring Action", "value": len(workspace_rows)},
+                    {"label": "Decision-Ready", "value": gate_ready_count},
+                    {"label": "Gate Blockers", "value": gate_blocker_count},
+                    {"label": "Framework Eligible", "value": framework_review_count},
+                ],
+            )
             workspace_df = pd.DataFrame(workspace_rows)
             st.dataframe(
                 workspace_df[["Company", "Ticker", "Current Stage", "Next Recommended Action", "Current Status"]],
@@ -3659,8 +4230,11 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
             else datetime.now().date()
         )
         
-        # Company name as header
-        st.header(thesis['company_name'])
+        render_page_header(
+            "Active Evaluation",
+            "What needs judgment now?",
+            eyebrow=f"{thesis['company_name']}" if pd.notna(thesis['company_name']) and str(thesis['company_name']).strip() else "Workspace",
+        )
 
         workspace_clarity = _build_workspace_clarity_context(thesis_id, thesis)
 
@@ -5654,10 +6228,10 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
         st.error("Selected thesis could not be found.")
 
 elif st.session_state['current_view'] == 'Settings':
-    st.header("Settings")
-    st.caption("How is Athena configured?")
+    render_page_header("Settings", "How is Athena configured?", eyebrow="Settings")
+    render_governance_badge()
 
-    section_header("Documentation")
+    render_section_title("Documentation")
     st.info("Operational guides, governance references, and workflow notes are centralized here.")
     st.markdown(
         "- Workflow: Prepare -> Review -> Decide\n"
@@ -5665,7 +6239,7 @@ elif st.session_state['current_view'] == 'Settings':
         "- Review: Historical attribution captured in History"
     )
 
-    section_header("Governance")
+    render_section_title("Governance")
     governance_theses_df = fetch_dataframe("SELECT id FROM theses ORDER BY id ASC")
     if governance_theses_df.empty:
         st.info("No theses available for governance reporting.")
@@ -5677,7 +6251,7 @@ elif st.session_state['current_view'] == 'Settings':
                 governance_ready += 1
         st.write(f"Decision-ready evaluations: {governance_ready} / {len(governance_ids)}")
 
-    section_header("System Information")
+    render_section_title("System Information")
     system_counts_df = fetch_dataframe(
         """
         SELECT
@@ -5699,7 +6273,7 @@ elif st.session_state['current_view'] == 'Settings':
         with col4:
             metric_card("Reviews", int(system_row["review_count"]))
 
-    section_header("Developer Tools")
+    render_section_title("Developer Tools")
     metric_card("Instrumentation Events", get_event_count())
     export_payload = export_events_json(indent=2)
     st.download_button(
@@ -5710,14 +6284,14 @@ elif st.session_state['current_view'] == 'Settings':
         use_container_width=True,
     )
 
-    section_header("Preferences")
+    render_section_title("Preferences")
     st.session_state.setdefault("athena_pref_compact_tables", False)
     st.session_state.setdefault("athena_pref_show_workflow_hints", True)
     st.checkbox("Compact table view", key="athena_pref_compact_tables")
     st.checkbox("Show workflow hints", key="athena_pref_show_workflow_hints")
     st.caption("Preferences are session-scoped for this runtime.")
 
-    section_header("About Athena")
+    render_section_title("About Athena")
     st.markdown("Athena is the analyst operating system for governed investment workflow.")
     st.caption("Doctrine: Does this help the analyst know what to do next within five seconds?")
 
