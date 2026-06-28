@@ -1037,22 +1037,192 @@ def build_thesis_overview_vm(thesis_id: int) -> dict:
     }
 
 
+def _display_value(value):
+    """Return an em dash for missing display values."""
+    if value is None:
+        return "—"
+    if isinstance(value, str) and not value.strip():
+        return "—"
+    return value
+
+
+def render_constitutional_journey(vm):
+    """Render lifecycle journey using only VM lifecycle fields."""
+    section_header("Constitutional Journey")
+    steps = [
+        ("Perception", vm["lifecycle"]["perception_status"]),
+        ("Understanding", vm["lifecycle"]["understanding_status"]),
+        ("Judgment", vm["lifecycle"]["judgment_status"]),
+        ("Commitment", vm["lifecycle"]["commitment_status"]),
+        ("Memory", vm["lifecycle"]["memory_status"]),
+    ]
+    status_text = {
+        "complete": "Complete",
+        "current": "Current",
+        "pending": "Pending",
+    }
+    status_progress = {
+        "complete": 1.0,
+        "current": 0.5,
+        "pending": 0.0,
+    }
+
+    columns = st.columns(5)
+    for idx, (label, raw_status) in enumerate(steps):
+        status = raw_status if raw_status in status_text else "pending"
+        with columns[idx]:
+            st.markdown(f"**{label}**")
+            st.progress(status_progress[status])
+            if status == "complete":
+                st.success(status_text[status])
+            elif status == "current":
+                st.info(status_text[status])
+            else:
+                st.caption(status_text[status])
+
+
+def render_thesis_health_summary(vm):
+    """Render thesis health summary from VM header/governance/decision/review fields."""
+    section_header("Thesis Health Summary")
+    col1, col2, col3 = st.columns(3)
+
+    decision_status = "Recorded" if vm["governance"]["decision_recorded"] else "Pending"
+
+    with col1:
+        summary_field("Company", _display_value(vm["header"]["company_name"]))
+        summary_field("Ticker", _display_value(vm["header"]["ticker"]))
+        summary_field("Validation Mode", "Enabled" if vm["header"]["validation_mode"] else "Disabled")
+        summary_field("Evidence Cutoff", _display_value(vm["header"]["cutoff_date"]))
+
+    with col2:
+        summary_field("Decision Status", decision_status)
+        summary_field("Recommendation", _display_value(vm["decision"]["recommendation"]))
+        summary_field("Decision Recorded Date", _display_value(vm["decision"]["recorded_date"]))
+
+    with col3:
+        summary_field("Latest Review Horizon", _display_value(vm["reviews"]["latest_horizon"]))
+        summary_field("Outcome Attribution", _display_value(vm["attribution"]["type"]))
+
+
+def render_thesis_progress_summary(vm):
+    """Render progress summary rows from VM-only evidence/observation/scoring/review fields."""
+    section_header("Progress Summary")
+
+    promoted_count = int(vm["evidence"]["promoted_count"])
+    staging_count = int(vm["evidence"]["staging_count"])
+    observations_count = int(vm["observations"]["count"])
+    pillars_complete = int(vm["scoring"]["pillars_complete"])
+    pillars_required = int(vm["scoring"]["pillars_required"])
+    review_count = int(vm["reviews"]["review_count"])
+    framework_count = int(vm["reviews"]["framework_review_eligible_count"])
+
+    evidence_pct = 1.0 if promoted_count > 0 else (0.5 if staging_count > 0 else 0.0)
+    observations_pct = 1.0 if observations_count > 0 else (0.5 if promoted_count > 0 else 0.0)
+    thesis_pct = 0.0 if pillars_required <= 0 else min(max(pillars_complete / pillars_required, 0.0), 1.0)
+    decision_pct = 1.0 if vm["governance"]["decision_recorded"] else (0.5 if pillars_complete > 0 else 0.0)
+    review_pct = 1.0 if review_count > 0 else (0.5 if vm["decision"]["recorded_date"] else 0.0)
+    framework_pct = 1.0 if framework_count > 0 else 0.0
+
+    progress_rows = [
+        {
+            "label": "Evidence",
+            "value_text": f"{promoted_count} promoted / {staging_count} staged",
+            "pct": evidence_pct,
+        },
+        {
+            "label": "Observations",
+            "value_text": f"{observations_count} recorded",
+            "pct": observations_pct,
+        },
+        {
+            "label": "Thesis",
+            "value_text": f"{pillars_complete} / {pillars_required} pillars complete",
+            "pct": thesis_pct,
+        },
+        {
+            "label": "Decision",
+            "value_text": "Recorded" if vm["governance"]["decision_recorded"] else "Pending",
+            "pct": decision_pct,
+        },
+        {
+            "label": "Historical Review",
+            "value_text": f"{review_count} reviews",
+            "pct": review_pct,
+        },
+        {
+            "label": "Framework Learning",
+            "value_text": f"{framework_count} eligible",
+            "pct": framework_pct,
+        },
+    ]
+
+    render_progress_summary(progress_rows)
+
+
+def render_constitutional_status(vm):
+    """Render read-only governance status panel from VM governance/review/attribution fields."""
+    section_header("Constitutional Status")
+
+    evidence_governed_status = "Complete" if int(vm["governance"]["gate_complete"]) > 0 else "Pending"
+    provenance_status = "Complete" if _display_value(vm["attribution"]["recorded_date"]) != "—" else "Unknown"
+    decision_status = "Complete" if vm["governance"]["decision_recorded"] else "Pending"
+    historical_status = "Active" if int(vm["reviews"]["review_count"]) > 0 else "Pending"
+    attribution_status = "Complete" if _display_value(vm["attribution"]["type"]) != "—" else "Pending"
+    learning_status = "Active" if int(vm["reviews"]["framework_review_eligible_count"]) > 0 else "Pending"
+
+    status_rows = [
+        ("Evidence Governed", evidence_governed_status),
+        ("Provenance Complete", provenance_status),
+        ("Decision Recorded", decision_status),
+        ("Historical Review Active", historical_status),
+        ("Attribution Complete", attribution_status),
+        ("Framework Learning Pending", learning_status),
+    ]
+
+    for label, status in status_rows:
+        col1, col2 = st.columns([2, 3])
+        with col1:
+            st.checkbox(label, value=status in {"Complete", "Active"}, disabled=True)
+        with col2:
+            summary_field("Status", status)
+
+
+def render_hermes_next_action(vm):
+    """Render Hermes next action details sourced only from VM next_action."""
+    section_header("Hermes Next Action")
+    next_action_text = _display_value(vm["next_action"]["text"])
+    if next_action_text == "—":
+        st.warning("No governed action currently queued.")
+    else:
+        st.info(str(next_action_text))
+
+    summary_field("Reason", _display_value(vm["next_action"]["reason"]))
+    summary_field("Priority", _display_value(vm["next_action"]["priority"]))
+
+
 def render_thesis_overview(vm):
     """Render Thesis Overview using a single, pre-assembled View Model."""
-    section_header("Evaluation Summary")
+    render_constitutional_journey(vm)
+    st.divider()
+    render_thesis_health_summary(vm)
+    st.divider()
+    render_thesis_progress_summary(vm)
+    st.divider()
+    render_constitutional_status(vm)
+    st.divider()
+    render_hermes_next_action(vm)
+    st.divider()
+
+    section_header("Thesis Context")
     col1, col2 = st.columns(2)
     with col1:
-        summary_field("Company", vm["header"]["company_name"])
-        summary_field("Ticker", vm["header"]["ticker"])
         summary_field("Reviewer", vm["summary"]["reviewer"])
         summary_field("DRL", vm["summary"]["drl"])
-        summary_field("Validation Mode", "Enabled" if vm["header"]["validation_mode"] else "Disabled")
     with col2:
-        summary_field("Status", vm["summary"]["status"])
+        summary_field("Thesis Status", vm["summary"]["status"])
         summary_field("Primary Horizon", vm["summary"]["primary_horizon"])
         summary_field("Regime State", vm["summary"]["regime_state"])
         summary_field("Created", vm["summary"]["created_at"] or "—")
-        summary_field("Evidence Cutoff Date", vm["header"]["cutoff_date"] or "—")
 
     if vm["governance"]["validation_locked"]:
         st.info("Validation mode and evidence cutoff date are immutable after the first decision record. Use a new thesis for a different historical scenario.")
@@ -1062,14 +1232,7 @@ def render_thesis_overview(vm):
     st.divider()
     section_header("Athena Pre-Brief")
 
-    st.markdown("**Lifecycle State**")
-    summary_field("Status", vm["summary"]["status"])
-    summary_field("Decision Recorded", "Yes" if vm["governance"]["decision_recorded"] else "No")
-    summary_field("Validation Configuration Locked", "Yes" if vm["governance"]["validation_locked"] else "No")
-
     st.markdown("**Governance Readiness**")
-    summary_field("Eligible", "Yes" if vm["governance"]["gate_complete"] >= vm["governance"]["gate_required"] else "No")
-    summary_field("Completion", f"{vm['governance']['gate_complete']} / {vm['governance']['gate_required']}")
     if vm["governance"]["missing"]:
         st.write("Missing Requirements:")
         for item in vm["governance"]["missing"]:
@@ -1078,8 +1241,6 @@ def render_thesis_overview(vm):
         st.write("Missing Requirements: —")
 
     st.markdown("**Evidence Summary**")
-    summary_field("Repository Evidence Count", vm["evidence"]["promoted_count"])
-    summary_field("Staging Total", vm["evidence"]["staging_count"])
     summary_field("Latest Repository Publication Date", vm["evidence"]["latest_publication_date"] or "—")
     if vm["evidence"]["staging_by_status"]:
         st.write("Staging by Status:")
@@ -1089,8 +1250,6 @@ def render_thesis_overview(vm):
         st.write("Staging by Status: —")
 
     st.markdown("**Historical Context**")
-    summary_field("Review Count", vm["reviews"]["review_count"])
-    summary_field("Framework Review Consideration Eligible Count", vm["reviews"]["framework_review_eligible_count"])
     summary_field("Latest Review Date", vm["reviews"]["latest_review_date"] or "—")
     prebrief_raw = vm["prebrief"]["raw"]
     horizons_present = prebrief_raw.get("historical_context", {}).get("horizons_present", [])
@@ -1107,9 +1266,6 @@ def render_thesis_overview(vm):
         else:
             st.write(f"- {subsystem_name}: none")
 
-    st.markdown("**Next Governed Action**")
-    st.write(vm["next_action"]["text"] or "—")
-
     st.markdown("**Provenance**")
     provenance_data = vm["prebrief"]["provenance"]
     summary_field("Lifecycle State Owner", provenance_data.get("lifecycle_state", "—"))
@@ -1122,33 +1278,8 @@ def render_thesis_overview(vm):
         st.json(vm["prebrief"]["raw"])
 
     st.divider()
-
-    section_header("Progress")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        metric_card("Evidence Items", vm["progress"]["evidence_count"])
-    with col2:
-        metric_card("Business Pillars", vm["progress"]["business_pillars_completed"])
-    with col3:
-        metric_card("Investment Pillars", vm["progress"]["investment_pillars_completed"])
-    with col4:
-        metric_card("Audit Events", vm["progress"]["audit_event_count"])
-
-    st.divider()
     section_header("Timeline")
     timeline_table(vm["timeline"]["rows"])
-
-    st.divider()
-    section_header("Athena Constitutional Status")
-    milestones = [
-        ("Perception", vm["lifecycle"]["perception_status"] == "complete"),
-        ("Understanding", vm["lifecycle"]["understanding_status"] == "complete"),
-        ("Judgment", vm["lifecycle"]["judgment_status"] == "complete"),
-        ("Commitment", vm["lifecycle"]["commitment_status"] == "complete"),
-        ("Memory", vm["lifecycle"]["memory_status"] == "complete"),
-    ]
-    for label, is_checked in milestones:
-        st.checkbox(label, value=is_checked, disabled=True)
 
     st.divider()
     section_header("JSON Export")
