@@ -3,6 +3,7 @@ import tempfile
 import unittest
 
 import evaluation_engine
+import extraction_coordinator
 import services
 
 
@@ -244,6 +245,267 @@ class EvaluationEngineTests(unittest.TestCase):
         self.assertTrue(result["workspace_ready"])
         self.assertEqual(result["evidence_discovery_status"], "failed")
         self.assertEqual(result["candidate_count"], 0)
+
+    def test_prepare_evaluation_retries_discovery_after_unavailable_without_candidates(self):
+        class FlakyProvider:
+            provider_name = "Flaky Discovery"
+
+            def __init__(self):
+                self.calls = 0
+
+            def discover(self, ticker, observation_date):
+                self.calls += 1
+                if self.calls == 1:
+                    return {
+                        "provider_name": self.provider_name,
+                        "status": "unavailable",
+                        "candidates": [],
+                        "warnings": ["Temporary outage"],
+                    }
+                return {
+                    "provider_name": self.provider_name,
+                    "status": "discovered",
+                    "candidates": [
+                        {
+                            "title": "Retry 10-K",
+                            "source": "SEC",
+                            "document_type": "10-K",
+                            "publication_date": "2000-01-01",
+                            "reference_url": "https://example.test/retry",
+                            "reference_id": "ACC-RETRY",
+                            "discovery_status": "candidate",
+                            "warnings": [],
+                        }
+                    ],
+                    "warnings": [],
+                }
+
+        class UnsupportedAcquisitionProvider:
+            provider_name = "No Fetch"
+
+            def supports(self, candidate):
+                return False
+
+        provider = FlakyProvider()
+        first = evaluation_engine.prepare_evaluation(
+            "RETRY",
+            "2000-01-01",
+            discovery_providers=[provider],
+            acquisition_providers=[UnsupportedAcquisitionProvider()],
+        )
+        second = evaluation_engine.prepare_evaluation(
+            "RETRY",
+            "2000-01-01",
+            discovery_providers=[provider],
+            acquisition_providers=[UnsupportedAcquisitionProvider()],
+        )
+
+        self.assertEqual(first["evidence_discovery_status"], "unavailable")
+        self.assertEqual(second["evidence_discovery_status"], "discovered")
+        self.assertGreaterEqual(second["candidate_count"], 1)
+
+    def test_prepare_evaluation_reference_only_document_reports_extraction_blocker(self):
+        class StaticProvider:
+            provider_name = "Static Discovery"
+
+            def discover(self, ticker, observation_date):
+                return {
+                    "provider_name": self.provider_name,
+                    "status": "discovered",
+                    "candidates": [
+                        {
+                            "title": "Reference-only 10-K",
+                            "source": "SEC",
+                            "document_type": "10-K",
+                            "publication_date": "2000-01-01",
+                            "reference_url": "https://example.test/reference-only",
+                            "reference_id": "ACC-REF",
+                            "discovery_status": "candidate",
+                            "warnings": [],
+                        }
+                    ],
+                    "warnings": [],
+                }
+
+        class ReferenceOnlyAcquisitionProvider:
+            provider_name = "Reference Only"
+
+            def supports(self, candidate):
+                return True
+
+            def acquire(self, candidate):
+                return {
+                    **candidate,
+                    "provider_name": self.provider_name,
+                    "acquisition_status": "acquired",
+                    "retrieval_timestamp": "2000-01-01T00:00:00",
+                    "source_reference": candidate.get("reference_url", ""),
+                    "content_type": "text/html",
+                    "source_content": "",
+                    "acquisition_error": "",
+                    "warnings": [],
+                }
+
+        result = evaluation_engine.prepare_evaluation(
+            "REFONLY",
+            "2000-01-01",
+            discovery_providers=[StaticProvider()],
+            acquisition_providers=[ReferenceOnlyAcquisitionProvider()],
+        )
+
+        self.assertEqual(result["acquisition_status"], "acquired")
+        self.assertEqual(result["extraction_status"], "unsupported")
+        self.assertTrue(any("No source text available for extraction" in w for w in result["extraction_warnings"]))
+
+    def test_prepare_evaluation_extraction_failure_is_visible_and_non_governed(self):
+        class StaticProvider:
+            provider_name = "Static Discovery"
+
+            def discover(self, ticker, observation_date):
+                return {
+                    "provider_name": self.provider_name,
+                    "status": "discovered",
+                    "candidates": [
+                        {
+                            "title": "10-K",
+                            "source": "SEC",
+                            "document_type": "10-K",
+                            "publication_date": "2000-01-01",
+                            "reference_url": "https://example.test/fail",
+                            "reference_id": "ACC-FAIL",
+                            "discovery_status": "candidate",
+                            "warnings": [],
+                        }
+                    ],
+                    "warnings": [],
+                }
+
+        class SourceAcquisitionProvider:
+            provider_name = "Source Provider"
+
+            def supports(self, candidate):
+                return True
+
+            def acquire(self, candidate):
+                return {
+                    **candidate,
+                    "provider_name": self.provider_name,
+                    "acquisition_status": "acquired",
+                    "retrieval_timestamp": "2000-01-01T00:00:00",
+                    "source_reference": candidate.get("reference_url", ""),
+                    "content_type": "text/html",
+                    "source_content": "sample extraction text",
+                    "acquisition_error": "",
+                    "warnings": [],
+                }
+
+        original_extract = extraction_coordinator.extract_observation_suggestions_from_text
+
+        def failing_extract(**kwargs):
+            return {"success": False, "message": "forced extractor failure", "suggestions": []}
+
+        extraction_coordinator.extract_observation_suggestions_from_text = failing_extract
+        try:
+            result = evaluation_engine.prepare_evaluation(
+                "FAILX",
+                "2000-01-01",
+                discovery_providers=[StaticProvider()],
+                acquisition_providers=[SourceAcquisitionProvider()],
+            )
+        finally:
+            extraction_coordinator.extract_observation_suggestions_from_text = original_extract
+
+        self.assertEqual(result["extraction_status"], "failed")
+        prep_df = services.fetch_dataframe(
+            "SELECT extraction_status FROM evaluation_preparations WHERE id = ?",
+            (result["preparation_id"],),
+        )
+        self.assertFalse(prep_df.empty)
+        self.assertEqual(str(prep_df.iloc[0]["extraction_status"]).strip(), "failed")
+
+        governed_df = services.fetch_dataframe("SELECT COUNT(*) AS count FROM evidence_items")
+        self.assertEqual(int(governed_df.iloc[0]["count"]), 0)
+
+    def test_prepare_evaluation_persists_extracted_observations_without_governed_promotion(self):
+        class StaticProvider:
+            provider_name = "Static Discovery"
+
+            def discover(self, ticker, observation_date):
+                return {
+                    "provider_name": self.provider_name,
+                    "status": "discovered",
+                    "candidates": [
+                        {
+                            "title": "10-K",
+                            "source": "SEC",
+                            "document_type": "10-K",
+                            "publication_date": "2000-01-01",
+                            "reference_url": "https://example.test/pass",
+                            "reference_id": "ACC-PASS",
+                            "discovery_status": "candidate",
+                            "warnings": [],
+                        }
+                    ],
+                    "warnings": [],
+                }
+
+        class SourceAcquisitionProvider:
+            provider_name = "Source Provider"
+
+            def supports(self, candidate):
+                return True
+
+            def acquire(self, candidate):
+                return {
+                    **candidate,
+                    "provider_name": self.provider_name,
+                    "acquisition_status": "acquired",
+                    "retrieval_timestamp": "2000-01-01T00:00:00",
+                    "source_reference": candidate.get("reference_url", ""),
+                    "content_type": "text/html",
+                    "source_content": "durable margins and strong competitive position",
+                    "acquisition_error": "",
+                    "warnings": [],
+                }
+
+        original_extract = extraction_coordinator.extract_observation_suggestions_from_text
+
+        def successful_extract(**kwargs):
+            return {
+                "success": True,
+                "message": "ok",
+                "suggestions": [
+                    {
+                        "passage": "Durable margins remained above peers.",
+                        "pillar_signal": "B1",
+                        "confidence": "high",
+                        "source_location": "p.5",
+                    }
+                ],
+            }
+
+        extraction_coordinator.extract_observation_suggestions_from_text = successful_extract
+        try:
+            result = evaluation_engine.prepare_evaluation(
+                "PASSX",
+                "2000-01-01",
+                discovery_providers=[StaticProvider()],
+                acquisition_providers=[SourceAcquisitionProvider()],
+            )
+        finally:
+            extraction_coordinator.extract_observation_suggestions_from_text = original_extract
+
+        self.assertEqual(result["extraction_status"], "completed")
+        self.assertGreaterEqual(result["extracted_observation_count"], 1)
+
+        extracted_df = services.fetch_dataframe(
+            "SELECT COUNT(*) AS count FROM evaluation_extracted_observations WHERE preparation_id = ?",
+            (result["preparation_id"],),
+        )
+        self.assertEqual(int(extracted_df.iloc[0]["count"]), 1)
+
+        governed_df = services.fetch_dataframe("SELECT COUNT(*) AS count FROM evidence_items")
+        self.assertEqual(int(governed_df.iloc[0]["count"]), 0)
 
 
 if __name__ == "__main__":

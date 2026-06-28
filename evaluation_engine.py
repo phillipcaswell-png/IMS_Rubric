@@ -406,10 +406,6 @@ def _verify_workspace_ready(thesis_id, errors):
 def _resolve_candidate_discovery(preparation_id, thesis_id, ticker, observation_date, providers):
     preparation_row = _fetch_preparation_row(preparation_id)
     persisted_status = str(preparation_row.get("evidence_discovery_status", DISCOVERY_STATUS_PENDING)).strip()
-    if persisted_status in [DISCOVERY_STATUS_UNAVAILABLE, DISCOVERY_STATUS_FAILED]:
-        existing_warnings = _load_persisted_discovery_warnings(preparation_id)
-        return persisted_status, [], existing_warnings
-
     existing_candidates = _load_persisted_candidates(preparation_id)
     if existing_candidates:
         existing_warnings = _load_persisted_discovery_warnings(preparation_id)

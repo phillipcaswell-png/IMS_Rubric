@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import date, datetime
 from urllib import error as url_error
 from urllib import request as url_request
@@ -85,8 +86,9 @@ class SecEdgarDiscoveryProvider:
     _ticker_map_cache = None
 
     def __init__(self, user_agent=None, timeout_seconds=6):
-        self.user_agent = user_agent or "Athena/1.0 (evidence-discovery)"
+        self.user_agent = user_agent or _resolve_sec_user_agent()
         self.timeout_seconds = int(timeout_seconds)
+        self.last_fetch_error = ""
 
     def discover(self, ticker, observation_date):
         normalized_ticker = str(ticker).strip().upper()
@@ -100,6 +102,15 @@ class SecEdgarDiscoveryProvider:
 
         cik = self._lookup_cik(normalized_ticker)
         if not cik:
+            if self.last_fetch_error:
+                return {
+                    "provider_name": self.provider_name,
+                    "status": DISCOVERY_STATUS_UNAVAILABLE,
+                    "candidates": [],
+                    "warnings": [
+                        f"SEC ticker mapping request failed: {self.last_fetch_error}. Configure SEC_USER_AGENT with contact details.",
+                    ],
+                }
             return {
                 "provider_name": self.provider_name,
                 "status": DISCOVERY_STATUS_UNAVAILABLE,
@@ -109,11 +120,14 @@ class SecEdgarDiscoveryProvider:
 
         filings = self._fetch_recent_filings(cik)
         if filings is None:
+            warning = "SEC submissions endpoint unavailable during preparation."
+            if self.last_fetch_error:
+                warning = f"SEC submissions request failed: {self.last_fetch_error}."
             return {
                 "provider_name": self.provider_name,
                 "status": DISCOVERY_STATUS_UNAVAILABLE,
                 "candidates": [],
-                "warnings": ["SEC submissions endpoint unavailable during preparation."],
+                "warnings": [warning],
             }
 
         cutoff = _normalize_observation_date(observation_date)
@@ -220,9 +234,21 @@ class SecEdgarDiscoveryProvider:
         try:
             with url_request.urlopen(request, timeout=self.timeout_seconds) as response:
                 payload = response.read().decode("utf-8")
+            self.last_fetch_error = ""
             return json.loads(payload)
-        except (url_error.URLError, url_error.HTTPError, TimeoutError, json.JSONDecodeError):
+        except url_error.HTTPError as exc:
+            self.last_fetch_error = f"HTTPError {exc.code}"
             return None
+        except (url_error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            self.last_fetch_error = f"{type(exc).__name__}: {str(exc)}"
+            return None
+
+
+def _resolve_sec_user_agent():
+    configured = str(os.getenv("SEC_USER_AGENT", "")).strip()
+    if configured:
+        return configured
+    return "Athena Operational Validation Contact ops@athena.local"
 
 
 def discover_candidate_documents(ticker, observation_date, providers=None):

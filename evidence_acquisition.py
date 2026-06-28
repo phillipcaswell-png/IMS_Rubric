@@ -1,4 +1,5 @@
 import hashlib
+import os
 from datetime import datetime
 from urllib import error as url_error
 from urllib import request as url_request
@@ -18,7 +19,7 @@ class SecEdgarAcquisitionProvider:
     provider_name = "SEC EDGAR Acquisition"
 
     def __init__(self, user_agent=None, timeout_seconds=8, max_content_chars=200000):
-        self.user_agent = user_agent or "Athena/1.0 (evidence-acquisition)"
+        self.user_agent = user_agent or _resolve_sec_user_agent()
         self.timeout_seconds = int(timeout_seconds)
         self.max_content_chars = int(max_content_chars)
 
@@ -58,6 +59,30 @@ class SecEdgarAcquisitionProvider:
             with url_request.urlopen(request, timeout=self.timeout_seconds) as response:
                 raw_content = response.read()
                 content_type = str(response.headers.get("Content-Type", "")).strip()
+        except url_error.HTTPError as exc:
+            if int(getattr(exc, "code", 0)) == 403:
+                return {
+                    **normalized_candidate,
+                    "provider_name": self.provider_name,
+                    "acquisition_status": ACQUISITION_STATUS_UNAVAILABLE,
+                    "retrieval_timestamp": retrieval_timestamp,
+                    "source_reference": reference_url,
+                    "content_type": "",
+                    "source_content": "",
+                    "acquisition_error": "Acquisition blocked by SEC (HTTP 403). Configure SEC_USER_AGENT with contact details.",
+                    "warnings": ["SEC rejected request due to user-agent policy."],
+                }
+            return {
+                **normalized_candidate,
+                "provider_name": self.provider_name,
+                "acquisition_status": ACQUISITION_STATUS_FAILED,
+                "retrieval_timestamp": retrieval_timestamp,
+                "source_reference": reference_url,
+                "content_type": "",
+                "source_content": "",
+                "acquisition_error": f"Acquisition failed: HTTPError {exc.code}",
+                "warnings": ["Source retrieval failed during preparation."],
+            }
         except (url_error.URLError, url_error.HTTPError, TimeoutError) as exc:
             return {
                 **normalized_candidate,
@@ -254,3 +279,10 @@ def _normalize_candidate(candidate):
         "discovery_source": str(candidate.get("source", "")).strip(),
         "original_candidate_identifier": original_identifier,
     }
+
+
+def _resolve_sec_user_agent():
+    configured = str(os.getenv("SEC_USER_AGENT", "")).strip()
+    if configured:
+        return configured
+    return "Athena Operational Validation Contact ops@athena.local"

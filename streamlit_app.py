@@ -4,6 +4,11 @@ import json
 import time
 from datetime import datetime
 from evaluation_engine import prepare_evaluation
+from workflow_assistant import (
+    normalize_promotion_candidates,
+    build_rationale_draft,
+    build_decision_prep_summary,
+)
 from services import (
     init_db,
     run_query,
@@ -464,7 +469,7 @@ def render_metric_row(tiles, section_title=None, add_divider=False):
 def open_thesis_workspace(thesis_id):
     """Navigate to the thesis workspace for a given thesis id."""
     st.session_state["selected_thesis_id"] = thesis_id
-    st.session_state["current_view"] = "Thesis Workspace"
+    st.session_state["current_view"] = "Workspace"
     st.rerun()
 
 
@@ -1071,6 +1076,179 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
                 for item in gate_result["missing"]:
                     st.write(f"- {item['pillar_id']} — {item['label']}")
 
+        st.markdown("**Guided Workflow (Athena Prepared -> Analyst Confirmed)**")
+        staged_df = fetch_dataframe(
+            """
+            SELECT staging_uuid, intake_status, source_name, duplicate_notes, promoted_evidence_id
+            FROM evidence_staging
+            WHERE thesis_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (thesis_id,),
+        )
+        staged_rows = staged_df.to_dict("records") if not staged_df.empty else []
+        extracted_rows = extracted_observations_df.to_dict("records") if not extracted_observations_df.empty else []
+        ignored_key = f"assessment_workspace_ignored_candidates_{thesis_id}"
+        ignored_candidates = st.session_state.setdefault(ignored_key, [])
+        candidate_rows = normalize_promotion_candidates(
+            extracted_rows=extracted_rows,
+            staged_rows=staged_rows,
+            ignored_candidate_ids=ignored_candidates,
+        )
+
+        prep_summary = build_decision_prep_summary(
+            gate_result=gate_result,
+            completed_business=business_rows,
+            completed_investment=investment_rows,
+        )
+        st.caption(prep_summary["next_action"])
+        st.caption("All actions below are analyst-triggered. Athena suggestions do not write governed records by themselves.")
+
+        if candidate_rows:
+            with st.expander("Athena Candidate Passages", expanded=False):
+                candidate_df = pd.DataFrame(candidate_rows)
+                st.dataframe(
+                    candidate_df[
+                        [
+                            "candidate_id",
+                            "candidate_state",
+                            "originating_document",
+                            "pillar_signal",
+                            "confidence",
+                            "source_location",
+                            "machine_status",
+                        ]
+                    ],
+                    use_container_width=True,
+                )
+
+                candidate_options = [row["candidate_id"] for row in candidate_rows]
+                selected_candidate_id = st.selectbox(
+                    "Candidate Passage",
+                    options=candidate_options,
+                    key=f"assessment_workspace_candidate_select_{thesis_id}",
+                )
+                selected_candidate = next(
+                    (row for row in candidate_rows if row["candidate_id"] == selected_candidate_id),
+                    None,
+                )
+                if selected_candidate is not None:
+                    st.caption(selected_candidate.get("passage", ""))
+                    st.caption(
+                        f"Reference: {selected_candidate.get('source_reference') or '—'} | "
+                        f"Current State: {selected_candidate.get('candidate_state') or 'pending'}"
+                    )
+
+                    analyst_name = thesis["reviewer"] if thesis["reviewer"] else "System"
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        if st.button(
+                            "Promote Candidate To Intake",
+                            key=f"assessment_workspace_promote_candidate_{thesis_id}",
+                            use_container_width=True,
+                        ):
+                            if selected_candidate.get("candidate_state") in ["reviewed", "confirmed", "promoted", "archived", "rejected"]:
+                                st.info("This candidate already has a staged or terminal state.")
+                            else:
+                                candidate_url = selected_candidate.get("source_reference") or ""
+                                passage = selected_candidate.get("passage") or ""
+                                staging_uuid = stage_evidence(
+                                    intake_thesis_id=thesis_id,
+                                    intake_source_type="Athena Extracted Passage",
+                                    intake_source_name=selected_candidate.get("originating_document") or "Extracted Source",
+                                    intake_source_url=candidate_url,
+                                    intake_publication_date=None,
+                                    intake_retrieval_date=datetime.now().date(),
+                                    intake_author_publisher=None,
+                                    intake_evidence_summary=passage[:1200],
+                                    intake_key_takeaway=(passage[:220] if passage else "Athena extracted candidate"),
+                                    intake_preliminary_grade=None,
+                                    intake_source_quality_notes=f"Athena prepared candidate from extraction (id={selected_candidate_id})",
+                                    intake_duplicate_flag=0,
+                                    intake_duplicate_notes=f"athena_candidate_id={selected_candidate_id}",
+                                    intake_created_by=analyst_name,
+                                )
+                                update_staged_evidence_source_text(staging_uuid=staging_uuid, source_text=passage)
+                                st.success(f"Candidate staged: {staging_uuid}")
+                                st.rerun()
+
+                    with col_b:
+                        if st.button(
+                            "Ignore Candidate",
+                            key=f"assessment_workspace_ignore_candidate_{thesis_id}",
+                            use_container_width=True,
+                        ):
+                            ignored_set = set(st.session_state.get(ignored_key, []))
+                            ignored_set.add(str(selected_candidate_id))
+                            st.session_state[ignored_key] = sorted(ignored_set)
+                            st.success("Candidate marked ignored for this session.")
+                            st.rerun()
+        else:
+            st.caption("No extracted Athena candidates are available for intake promotion yet.")
+
+        pending_staging_df = fetch_dataframe(
+            """
+            SELECT staging_uuid, intake_status, source_name
+            FROM evidence_staging
+            WHERE thesis_id = ?
+              AND intake_status IN ('Reviewed', 'Confirmed')
+            ORDER BY created_at DESC, id DESC
+            """,
+            (thesis_id,),
+        )
+        if not pending_staging_df.empty:
+            with st.expander("Analyst Confirmation Queue", expanded=False):
+                st.caption("Promotion remains explicit: confirmed intake is only promoted on analyst click.")
+                st.dataframe(pending_staging_df, use_container_width=True)
+                queue_options = pending_staging_df["staging_uuid"].astype(str).tolist()
+                selected_queue_uuid = st.selectbox(
+                    "Select Staged Evidence",
+                    options=queue_options,
+                    key=f"assessment_workspace_queue_uuid_{thesis_id}",
+                )
+                queue_status = str(
+                    pending_staging_df[pending_staging_df["staging_uuid"] == selected_queue_uuid].iloc[0]["intake_status"]
+                ).strip()
+                reviewer_name = st.text_input(
+                    "Analyst Name",
+                    value=thesis["reviewer"] if thesis["reviewer"] else "System",
+                    key=f"assessment_workspace_queue_reviewer_{thesis_id}",
+                )
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if queue_status == INTAKE_STATUS_REVIEWED and st.button(
+                        "Confirm Staged Evidence",
+                        key=f"assessment_workspace_confirm_staged_{thesis_id}",
+                        use_container_width=True,
+                    ):
+                        status_result = update_staged_evidence_status(
+                            staging_uuid=selected_queue_uuid,
+                            target_status=INTAKE_STATUS_CONFIRMED,
+                            reviewer_name=reviewer_name,
+                            rejection_reason_input="",
+                            thesis_id=thesis_id,
+                        )
+                        if status_result["success"]:
+                            st.success(status_result["message"])
+                            st.rerun()
+                        st.error(status_result["message"])
+                with col_b:
+                    if queue_status == INTAKE_STATUS_CONFIRMED and st.button(
+                        "Promote Confirmed Evidence",
+                        key=f"assessment_workspace_promote_staged_{thesis_id}",
+                        use_container_width=True,
+                    ):
+                        promotion_result = promote_staged_evidence(
+                            staging_uuid=selected_queue_uuid,
+                            analyst=reviewer_name.strip() if reviewer_name else "System",
+                        )
+                        if promotion_result["success"]:
+                            st.success(
+                                f"Promoted to evidence_items ID {promotion_result['promoted_evidence_id']}"
+                            )
+                            st.rerun()
+                        st.error(promotion_result["message"])
+
     with left_col:
         st.subheader(pillar_meta["domain"])
         st.caption(f"Focused Pillar: {pillar_id} — {pillar_name}")
@@ -1264,12 +1442,37 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
             st.dataframe(advisory_df[visible_columns], use_container_width=True)
 
         st.markdown("**Business Narrative**")
+        rationale_draft = build_rationale_draft(
+            pillar_id=pillar_id,
+            pillar_name=pillar_name,
+            synthesis=context,
+            extracted_candidates=(extracted_observations_df.to_dict("records") if not extracted_observations_df.empty else []),
+        )
+        rationale_draft_key = f"assessment_workspace_reasoning_{thesis_id}_{pillar_id}"
+        if st.button(
+            "Prepare Athena Draft Rationale",
+            key=f"assessment_workspace_prepare_draft_{thesis_id}_{pillar_id}",
+            use_container_width=True,
+        ):
+            st.session_state[rationale_draft_key] = rationale_draft["draft_text"]
+            st.success("Athena draft prepared. Review and edit before saving governed assessment.")
+            st.rerun()
+        if rationale_draft["warnings"]:
+            for warning in rationale_draft["warnings"]:
+                st.warning(warning)
         st.text_area(
             "Reasoning Draft",
-            key=f"assessment_workspace_reasoning_{thesis_id}_{pillar_id}",
+            key=rationale_draft_key,
             placeholder="Draft your reasoning here. This remains working context until governed fields are approved.",
             height=120,
         )
+        if gate_result["eligible"]:
+            st.info("Decision gate is ready. Proceed to the Record Decision section for explicit decision confirmation.")
+        else:
+            st.caption(
+                f"Decision gate blocked by {len(gate_result['missing'])} missing required fields. "
+                "Complete governed fields before decision recording."
+            )
 
         st.subheader("Governed Assessment")
         score_key = f"assessment_workspace_score_{thesis_id}_{pillar_id}"
@@ -2039,7 +2242,7 @@ st.markdown("---")
 
 # Initialize session state
 if 'current_view' not in st.session_state:
-    st.session_state['current_view'] = 'Dashboard'
+    st.session_state['current_view'] = 'Home'
 if 'selected_thesis_id' not in st.session_state:
     st.session_state['selected_thesis_id'] = None
 if 'selected_evidence_id' not in st.session_state:
@@ -2050,7 +2253,7 @@ if 'engine_preparation_status' not in st.session_state:
 
 def _capture_navigation_event():
     """Capture view transitions passively without affecting navigation logic."""
-    current_view = st.session_state.get("current_view", "Dashboard")
+    current_view = st.session_state.get("current_view", "Home")
     previous_view = st.session_state.get("_instrument_previous_view")
     thesis_id = st.session_state.get("selected_thesis_id")
 
@@ -2149,12 +2352,14 @@ def render_sidebar_brand():
 
 def _is_primary_nav_active(label, current_view):
     """Return whether a primary navigation label should appear active."""
+    if label == "Home":
+        return current_view in ["Home", "Dashboard", "New Thesis", "Hermes Workflow Inbox"]
+    if label == "Portfolio":
+        return current_view == "Portfolio"
     if label == "Workspace":
-        return current_view in ["Dashboard", "New Thesis", "Hermes Workflow Inbox"]
-    if label == "Theses":
-        return current_view in ["Thesis Workspace", "Thesis Detail"]
+        return current_view in ["Workspace", "Thesis Workspace", "Thesis Detail"]
     if label == "History":
-        return current_view == "Documentation"
+        return current_view in ["History", "Documentation"]
     if label == "Settings":
         return current_view == "Settings"
     return False
@@ -2162,16 +2367,19 @@ def _is_primary_nav_active(label, current_view):
 
 def _apply_primary_navigation(label):
     """Apply existing primary navigation mapping and lifecycle behavior."""
-    if label == "Workspace":
-        st.session_state["current_view"] = "Dashboard"
+    if label == "Home":
+        st.session_state["current_view"] = "Home"
         st.session_state["selected_thesis_id"] = None
-    elif label == "Theses":
+    elif label == "Portfolio":
+        st.session_state["current_view"] = "Portfolio"
+        st.session_state["selected_thesis_id"] = None
+    elif label == "Workspace":
         if st.session_state.get("selected_thesis_id") is not None:
-            st.session_state["current_view"] = "Thesis Workspace"
+            st.session_state["current_view"] = "Workspace"
         else:
-            st.session_state["current_view"] = "Dashboard"
+            st.session_state["current_view"] = "Workspace"
     elif label == "History":
-        st.session_state["current_view"] = "Documentation"
+        st.session_state["current_view"] = "History"
         st.session_state["selected_thesis_id"] = None
     elif label == "Settings":
         st.session_state["current_view"] = "Settings"
@@ -2180,14 +2388,12 @@ def _apply_primary_navigation(label):
 
 def render_sidebar_primary_navigation(current_view):
     """Render primary navigation controls."""
-    primary_nav_labels = ["Workspace", "Theses", "History", "Settings"]
+    primary_nav_labels = ["Home", "Portfolio", "Workspace", "History", "Settings"]
     for nav_label in primary_nav_labels:
         button_type = "primary" if _is_primary_nav_active(nav_label, current_view) else "secondary"
         if st.button(nav_label, key=f"nav_{nav_label}", use_container_width=True, type=button_type):
             _apply_primary_navigation(nav_label)
             st.rerun()
-        if nav_label == "History":
-            st.markdown("<div class='athena-history-map'>Documentation</div>", unsafe_allow_html=True)
 
 
 def _active_thesis_descriptor(thesis_row):
@@ -2263,30 +2469,17 @@ def render_sidebar_actions():
 
 # Sidebar navigation
 with st.sidebar:
-    theses_df = fetch_dataframe(
-        """
-        SELECT id, company_name, account_type, portfolio_role, primary_horizon
-        FROM theses
-        ORDER BY company_name
-        """
-    )
-    selected_thesis_id = st.session_state.get("selected_thesis_id")
-    current_view = st.session_state.get("current_view", "Dashboard")
+    current_view = st.session_state.get("current_view", "Home")
 
     _render_sidebar_styles()
     render_sidebar_brand()
     st.divider()
     render_sidebar_primary_navigation(current_view)
-    st.markdown("<br>", unsafe_allow_html=True)
-    render_active_thesis_card(theses_df, selected_thesis_id)
-    render_sidebar_portfolio(theses_df)
-    st.divider()
-    render_sidebar_actions()
 
 _capture_navigation_event()
 
 # Main content area
-if st.session_state['current_view'] == 'Dashboard':
+if st.session_state['current_view'] in ['Home', 'Dashboard']:
 
     theses_df = fetch_dataframe(
         """
@@ -2659,35 +2852,367 @@ if st.session_state['current_view'] == 'Dashboard':
             ]
         ]
 
-    workspace_vm = {
-        "header": {
-            "analyst_name": st.session_state.get("analyst_name"),
-            "primary_text": "Continue where you left off.",
-        },
-        "hero": hero_thesis_data,
-        "focus": watchlist_rows_sorted,
-        "portfolio": {
-            "rows": portfolio_rows,
-            "display_df": portfolio_display_df,
-        },
-        "metrics": metric_tiles,
-        "governance": {
-            "display_df": governance_display_df,
-        },
-        "historical": {
-            "outcome_distribution_df": outcome_distribution_df,
-            "framework_theses_df": framework_theses_df,
-        },
-        "watchlist": {
-            "display_df": watchlist_display_df,
-        },
-        "mnemosyne": mnemosyne_data,
-        "assessment": None,
-        "decision": None,
-        "evidence": None,
-    }
+    st.markdown("# Athena")
+    st.caption("Governed Investment Intelligence")
+    st.markdown("Prepare. Review. Decide.")
 
-    render_workspace(workspace_vm)
+    section_header("Continue Working")
+    continue_rows = watchlist_rows_sorted if watchlist_rows_sorted else sorted(portfolio_rows, key=lambda row: row["Company"])
+    if not continue_rows:
+        empty_state("No active evaluations. Start a new evaluation below.")
+    else:
+        for idx, row in enumerate(continue_rows[:5]):
+            thesis_id = int(row["thesis_id"])
+            gate = gate_results_by_thesis_id.get(thesis_id, {"completed": 0, "required": 11, "eligible": False})
+            latest_decision_row = latest_decision_by_thesis_id.get(thesis_id)
+            recommendation_status = "No Decision"
+            if latest_decision_row is not None and pd.notna(latest_decision_row.get("recommendation")) and str(latest_decision_row.get("recommendation")).strip():
+                recommendation_status = str(latest_decision_row.get("recommendation")).strip()
+            lifecycle_stage = "Assessment"
+            if gate.get("eligible"):
+                lifecycle_stage = "Decision"
+            elif int(gate.get("completed", 0)) == 0:
+                lifecycle_stage = "Preparation"
+
+            card_col, action_col = st.columns([5, 1])
+            with card_col:
+                st.markdown(
+                    f"**{row['Company']}**  \n"
+                    f"Current lifecycle stage: {lifecycle_stage}  \n"
+                    f"Recommendation status: {recommendation_status}  \n"
+                    f"Progress: {gate.get('completed', 0)} / {gate.get('required', 11)}  \n"
+                    f"Next action: {row.get('Action Required', 'Continue assessment')}"
+                )
+            with action_col:
+                if st.button("Continue", key=f"home_continue_{idx}_{thesis_id}", use_container_width=True):
+                    st.session_state["selected_thesis_id"] = thesis_id
+                    st.session_state["current_view"] = "Workspace"
+                    st.rerun()
+
+    st.divider()
+    section_header("Start New Evaluation")
+    with st.form("home_prepare_evaluation_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            ticker = st.text_input("Ticker", placeholder="e.g., AAPL")
+        with col2:
+            observation_date = st.date_input(
+                "Observation Date",
+                value=datetime.now().date(),
+                min_value=datetime(1900, 1, 1).date(),
+            )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            company_name = st.text_input("Company Name", placeholder="Optional display name")
+        with col2:
+            reviewer = st.text_input("Reviewer", placeholder="Name of reviewer")
+
+        submitted = st.form_submit_button("Prepare Evaluation", use_container_width=True)
+        if submitted:
+            if not ticker.strip():
+                st.error("Ticker is required.")
+            else:
+                preparation_status = prepare_evaluation(
+                    ticker=ticker,
+                    observation_date=observation_date,
+                    company_name=company_name,
+                    reviewer=reviewer,
+                )
+                st.session_state['engine_preparation_status'] = preparation_status
+                thesis_id = preparation_status.get("thesis_id")
+                readiness_status = preparation_status.get("readiness_status")
+                if thesis_id is not None and readiness_status in ["ready_for_analyst", "partial"]:
+                    st.session_state["selected_thesis_id"] = int(thesis_id)
+                    st.session_state["current_view"] = "Workspace"
+                render_preparation_status(preparation_status)
+
+    st.divider()
+    section_header("Workflow Inbox")
+    inbox_tasks = compute_hermes_inbox()
+    if inbox_tasks:
+        inbox_rows = []
+        for task in inbox_tasks:
+            task_type = str(task.get("task_type", "")).strip()
+            workflow_state = "Ready for Analyst"
+            if "promotion" in task_type.lower():
+                workflow_state = "Awaiting Promotion"
+            elif "score" in task_type.lower() or "assessment" in task_type.lower():
+                workflow_state = "Awaiting Scores"
+            elif "decision" in task_type.lower():
+                workflow_state = "Decision Ready"
+            elif "review" in task_type.lower():
+                workflow_state = "Awaiting Review"
+
+            inbox_rows.append(
+                {
+                    "Priority": int(task["priority"]),
+                    "Company": task["company_name"],
+                    "Workflow State": workflow_state,
+                    "Task": task_type,
+                    "Action": task["action"],
+                    "Due Date": task["due_date"] if task["due_date"] else "—",
+                }
+            )
+
+        inbox_display_df = pd.DataFrame(inbox_rows).sort_values(
+            by=["Priority", "Due Date", "Company"],
+            ascending=[True, True, True],
+        )
+        st.dataframe(inbox_display_df, use_container_width=True)
+    else:
+        st.info("No workflow items currently require analyst attention.")
+
+    st.divider()
+    section_header("Portfolio Summary")
+    latest_prep_df = fetch_dataframe(
+        """
+        SELECT ep.thesis_id, ep.readiness_status
+        FROM evaluation_preparations ep
+        JOIN (
+            SELECT thesis_id, MAX(id) AS max_id
+            FROM evaluation_preparations
+            GROUP BY thesis_id
+        ) latest ON latest.max_id = ep.id
+        """
+    )
+    readiness_by_thesis_id = {
+        int(row["thesis_id"]): str(row["readiness_status"]).strip()
+        for _, row in latest_prep_df.iterrows()
+        if pd.notna(row["thesis_id"]) and pd.notna(row["readiness_status"])
+    }
+    active_evaluations = int(theses_df[theses_df["status"].fillna("") != STATUS_CLOSED]["id"].count())
+    ready_for_analyst = sum(1 for status in readiness_by_thesis_id.values() if status == "ready_for_analyst")
+    preparing_count = sum(1 for status in readiness_by_thesis_id.values() if status in ["pending", "preparing"]) 
+    awaiting_decision = sum(1 for gate in gate_results_by_thesis_id.values() if gate.get("eligible"))
+    completed_count = int(theses_df[theses_df["status"].fillna("") == STATUS_CLOSED]["id"].count())
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        metric_card("Active Evaluations", active_evaluations)
+    with c2:
+        metric_card("Ready for Analyst", ready_for_analyst)
+    with c3:
+        metric_card("Preparing", preparing_count)
+    with c4:
+        metric_card("Awaiting Decision", awaiting_decision)
+    with c5:
+        metric_card("Completed", completed_count)
+
+    st.divider()
+    section_header("Recent Activity")
+    recent_activity_df = fetch_dataframe(
+        """
+        SELECT created_at, event_type, event_description, created_by
+        FROM thesis_events
+        ORDER BY created_at DESC
+        LIMIT 20
+        """
+    )
+    if recent_activity_df.empty:
+        empty_state("No recent analyst actions recorded yet.")
+    else:
+        display_activity_df = recent_activity_df.rename(
+            columns={
+                "created_at": "Timestamp",
+                "event_type": "Event",
+                "event_description": "Description",
+                "created_by": "By",
+            }
+        )
+        st.dataframe(display_activity_df, use_container_width=True)
+
+elif st.session_state['current_view'] == 'Portfolio':
+    st.header("Portfolio")
+    st.caption("What companies am I responsible for?")
+
+    portfolio_df = fetch_dataframe(
+        """
+        SELECT
+            t.id,
+            t.company_name,
+            t.ticker,
+            t.status,
+            COALESCE(MAX(te.created_at), t.created_at) AS last_updated
+        FROM theses t
+        LEFT JOIN thesis_events te ON te.thesis_id = t.id
+        GROUP BY t.id, t.company_name, t.ticker, t.status, t.created_at
+        ORDER BY t.company_name ASC
+        """
+    )
+
+    latest_decision_df = fetch_dataframe(
+        """
+        SELECT d1.*
+        FROM decision_logs d1
+        JOIN (
+            SELECT thesis_id, MAX(id) AS max_id
+            FROM decision_logs
+            GROUP BY thesis_id
+        ) latest ON latest.thesis_id = d1.thesis_id AND latest.max_id = d1.id
+        """
+    )
+    latest_decision_by_thesis_id = {
+        int(row["thesis_id"]): row for _, row in latest_decision_df.iterrows()
+    } if not latest_decision_df.empty else {}
+
+    rows = []
+    for _, row in portfolio_df.iterrows():
+        thesis_id = int(row["id"])
+        gate = validate_decision_gate(thesis_id)
+        score_progress_df = fetch_dataframe(
+            """
+            SELECT
+                SUM(CASE WHEN pillar_id LIKE 'B%' THEN 1 ELSE 0 END) AS business_rows,
+                SUM(CASE WHEN pillar_id LIKE 'I%' THEN 1 ELSE 0 END) AS investment_rows
+            FROM pillar_scores
+            WHERE thesis_id = ?
+            """,
+            (thesis_id,),
+        )
+        progress_row = score_progress_df.iloc[0] if not score_progress_df.empty else None
+        business_rows = int(progress_row["business_rows"]) if progress_row is not None and pd.notna(progress_row["business_rows"]) else 0
+        investment_rows = int(progress_row["investment_rows"]) if progress_row is not None and pd.notna(progress_row["investment_rows"]) else 0
+        lifecycle_stage = _get_workspace_stage(business_rows, investment_rows, gate["eligible"])
+
+        latest_decision = latest_decision_by_thesis_id.get(thesis_id)
+        recommendation = "—"
+        if latest_decision is not None and pd.notna(latest_decision.get("recommendation")) and str(latest_decision.get("recommendation")).strip():
+            recommendation = str(latest_decision.get("recommendation")).strip()
+
+        next_action = "Complete constitutional assessment fields"
+        if gate["eligible"]:
+            next_action = "Record or update decision"
+        elif gate["missing"]:
+            next_action = f"Resolve {len(gate['missing'])} gate blockers"
+
+        rows.append(
+            {
+                "thesis_id": thesis_id,
+                "Company": row["company_name"],
+                "Ticker": row["ticker"] if pd.notna(row["ticker"]) and str(row["ticker"]).strip() else "—",
+                "Current Status": row["status"] if pd.notna(row["status"]) and str(row["status"]).strip() else "—",
+                "Lifecycle Stage": lifecycle_stage,
+                "Recommendation": recommendation,
+                "Last Updated": row["last_updated"] if pd.notna(row["last_updated"]) else "—",
+                "Next Action": next_action,
+            }
+        )
+
+    inventory_df = pd.DataFrame(rows)
+    if inventory_df.empty:
+        empty_state("No theses found.")
+    else:
+        search_query = st.text_input("Search", placeholder="Company, ticker, or status")
+        status_options = ["All"] + sorted(inventory_df["Current Status"].dropna().astype(str).unique().tolist())
+        selected_status = st.selectbox("Filter", options=status_options)
+        sort_options = ["Company", "Lifecycle Stage", "Current Status", "Last Updated", "Next Action"]
+        selected_sort = st.selectbox("Sort", options=sort_options, index=0)
+
+        filtered_df = inventory_df.copy()
+        if search_query.strip():
+            query = search_query.strip().lower()
+            filtered_df = filtered_df[
+                filtered_df.apply(
+                    lambda r: query in str(r["Company"]).lower()
+                    or query in str(r["Ticker"]).lower()
+                    or query in str(r["Current Status"]).lower(),
+                    axis=1,
+                )
+            ]
+        if selected_status != "All":
+            filtered_df = filtered_df[filtered_df["Current Status"] == selected_status]
+
+        filtered_df = filtered_df.sort_values(by=[selected_sort, "Company"], ascending=[True, True])
+        st.dataframe(filtered_df[["Company", "Ticker", "Current Status", "Lifecycle Stage", "Recommendation", "Last Updated", "Next Action"]], use_container_width=True)
+
+        open_options = filtered_df["thesis_id"].astype(int).tolist()
+        if open_options:
+            selected_open_thesis = st.selectbox(
+                "Open Workspace",
+                options=open_options,
+                format_func=lambda tid: f"{int(tid)} — {filtered_df[filtered_df['thesis_id'] == tid].iloc[0]['Company']}",
+            )
+            if st.button("Continue In Workspace", use_container_width=True):
+                st.session_state["selected_thesis_id"] = int(selected_open_thesis)
+                st.session_state["current_view"] = "Workspace"
+                st.rerun()
+
+elif st.session_state['current_view'] == 'History':
+    st.header("History")
+    st.caption("What decisions have already been made?")
+
+    completed_df = fetch_dataframe(
+        """
+        SELECT id, company_name, ticker, status, created_at
+        FROM theses
+        WHERE status = ?
+        ORDER BY created_at DESC
+        """,
+        (STATUS_CLOSED,),
+    )
+    section_header("Completed Evaluations")
+    if completed_df.empty:
+        st.info("No completed evaluations yet.")
+    else:
+        st.dataframe(completed_df, use_container_width=True)
+
+    recommendation_df = fetch_dataframe(
+        """
+        SELECT t.company_name, t.ticker, d.recommendation, d.review_date, d.next_review_date, d.created_at
+        FROM decision_logs d
+        JOIN theses t ON t.id = d.thesis_id
+        ORDER BY d.created_at DESC
+        """
+    )
+    section_header("Historical Recommendations")
+    if recommendation_df.empty:
+        st.info("No decision records yet.")
+    else:
+        st.dataframe(recommendation_df, use_container_width=True)
+
+    outcome_df = fetch_dataframe(
+        """
+        SELECT t.company_name, tr.review_horizon, tr.outcome_attribution_type, tr.review_date, tr.framework_review_eligible
+        FROM thesis_reviews tr
+        JOIN theses t ON t.id = tr.thesis_id
+        ORDER BY tr.review_date DESC, tr.created_at DESC
+        """
+    )
+    section_header("Outcome Attribution")
+    if outcome_df.empty:
+        st.info("No outcome attribution records yet.")
+    else:
+        st.dataframe(outcome_df, use_container_width=True)
+
+    audit_df = fetch_dataframe(
+        """
+        SELECT te.created_at, t.company_name, te.event_type, te.event_description, te.created_by
+        FROM thesis_events te
+        JOIN theses t ON t.id = te.thesis_id
+        ORDER BY te.created_at DESC
+        LIMIT 250
+        """
+    )
+    section_header("Audit Trail")
+    if audit_df.empty:
+        st.info("No audit events recorded.")
+    else:
+        st.dataframe(audit_df, use_container_width=True)
+
+    lessons_df = fetch_dataframe(
+        """
+        SELECT t.company_name, tr.review_horizon, tr.outcome_summary, tr.thesis_quality_assessment, tr.framework_notes, tr.review_date
+        FROM thesis_reviews tr
+        JOIN theses t ON t.id = tr.thesis_id
+        ORDER BY tr.review_date DESC, tr.created_at DESC
+        """
+    )
+    section_header("Lessons Learned")
+    if lessons_df.empty:
+        st.info("No lessons learned captured yet.")
+    else:
+        st.dataframe(lessons_df, use_container_width=True)
 
 elif st.session_state['current_view'] == 'Hermes Workflow Inbox':
     st.header("📬 Hermes — Workflow Inbox")
@@ -2780,9 +3305,70 @@ elif st.session_state['current_view'] == 'New Thesis':
 
                 render_preparation_status(preparation_status)
 
-elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
+elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis Workspace']:
     # Get thesis data
     thesis_id = st.session_state['selected_thesis_id']
+    if thesis_id is None:
+        st.header("Workspace")
+        st.caption("What do I need to decide?")
+
+        workspace_rows = []
+        workspace_theses_df = fetch_dataframe(
+            "SELECT id, company_name, ticker, status FROM theses ORDER BY company_name ASC"
+        )
+        for _, workspace_row in workspace_theses_df.iterrows():
+            workspace_tid = int(workspace_row["id"])
+            gate = validate_decision_gate(workspace_tid)
+            score_df = fetch_dataframe(
+                """
+                SELECT
+                    SUM(CASE WHEN pillar_id LIKE 'B%' THEN 1 ELSE 0 END) AS business_rows,
+                    SUM(CASE WHEN pillar_id LIKE 'I%' THEN 1 ELSE 0 END) AS investment_rows
+                FROM pillar_scores
+                WHERE thesis_id = ?
+                """,
+                (workspace_tid,),
+            )
+            score_row = score_df.iloc[0] if not score_df.empty else None
+            business_rows = int(score_row["business_rows"]) if score_row is not None and pd.notna(score_row["business_rows"]) else 0
+            investment_rows = int(score_row["investment_rows"]) if score_row is not None and pd.notna(score_row["investment_rows"]) else 0
+            stage = _get_workspace_stage(business_rows, investment_rows, gate["eligible"])
+            next_action = "Complete governed assessment fields"
+            if gate["eligible"]:
+                next_action = "Record decision"
+            elif gate["missing"]:
+                next_action = f"Resolve {len(gate['missing'])} gate blockers"
+
+            workspace_rows.append(
+                {
+                    "thesis_id": workspace_tid,
+                    "Company": workspace_row["company_name"],
+                    "Ticker": workspace_row["ticker"] if pd.notna(workspace_row["ticker"]) and str(workspace_row["ticker"]).strip() else "—",
+                    "Current Stage": stage,
+                    "Next Recommended Action": next_action,
+                    "Current Status": workspace_row["status"] if pd.notna(workspace_row["status"]) and str(workspace_row["status"]).strip() else "—",
+                }
+            )
+
+        if not workspace_rows:
+            empty_state("No evaluations available. Start from Home using Prepare Evaluation.")
+        else:
+            workspace_df = pd.DataFrame(workspace_rows)
+            st.dataframe(
+                workspace_df[["Company", "Ticker", "Current Stage", "Next Recommended Action", "Current Status"]],
+                use_container_width=True,
+            )
+            selected_workspace_thesis = st.selectbox(
+                "Select Evaluation",
+                options=workspace_df["thesis_id"].astype(int).tolist(),
+                format_func=lambda tid: f"{int(tid)} — {workspace_df[workspace_df['thesis_id'] == tid].iloc[0]['Company']}",
+            )
+            if st.button("Open Workspace", use_container_width=True):
+                st.session_state['selected_thesis_id'] = int(selected_workspace_thesis)
+                st.session_state['current_view'] = 'Workspace'
+                st.rerun()
+        st.stop()
+
     thesis_df = fetch_dataframe(
         "SELECT * FROM theses WHERE id = ?",
         (thesis_id,)
@@ -4742,9 +5328,73 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
 
 elif st.session_state['current_view'] == 'Settings':
     st.header("Settings")
-    empty_state("**Placeholder:** Settings interface coming soon.")
+    st.caption("How is Athena configured?")
+
+    section_header("Documentation")
+    st.info("Operational guides, governance references, and workflow notes are centralized here.")
+    st.markdown(
+        "- Workflow: Prepare -> Review -> Decide\n"
+        "- Governance: Themis constitutional validation remains authoritative\n"
+        "- Review: Historical attribution captured in History"
+    )
+
+    section_header("Governance")
+    governance_theses_df = fetch_dataframe("SELECT id FROM theses ORDER BY id ASC")
+    if governance_theses_df.empty:
+        st.info("No theses available for governance reporting.")
+    else:
+        governance_ids = governance_theses_df["id"].astype(int).tolist()
+        governance_ready = 0
+        for governance_tid in governance_ids:
+            if validate_decision_gate(governance_tid)["eligible"]:
+                governance_ready += 1
+        st.write(f"Decision-ready evaluations: {governance_ready} / {len(governance_ids)}")
+
+    section_header("System Information")
+    system_counts_df = fetch_dataframe(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM theses) AS thesis_count,
+            (SELECT COUNT(*) FROM evidence_items) AS evidence_count,
+            (SELECT COUNT(*) FROM decision_logs) AS decision_count,
+            (SELECT COUNT(*) FROM thesis_reviews) AS review_count
+        """
+    )
+    if not system_counts_df.empty:
+        system_row = system_counts_df.iloc[0]
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            metric_card("Theses", int(system_row["thesis_count"]))
+        with col2:
+            metric_card("Evidence Items", int(system_row["evidence_count"]))
+        with col3:
+            metric_card("Decisions", int(system_row["decision_count"]))
+        with col4:
+            metric_card("Reviews", int(system_row["review_count"]))
+
+    section_header("Developer Tools")
+    metric_card("Instrumentation Events", get_event_count())
+    export_payload = export_events_json(indent=2)
+    st.download_button(
+        "Download Instrumentation JSON",
+        data=export_payload,
+        file_name="athena_instrumentation.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+
+    section_header("Preferences")
+    st.session_state.setdefault("athena_pref_compact_tables", False)
+    st.session_state.setdefault("athena_pref_show_workflow_hints", True)
+    st.checkbox("Compact table view", key="athena_pref_compact_tables")
+    st.checkbox("Show workflow hints", key="athena_pref_show_workflow_hints")
+    st.caption("Preferences are session-scoped for this runtime.")
+
+    section_header("About Athena")
+    st.markdown("Athena is the analyst operating system for governed investment workflow.")
+    st.caption("Doctrine: Does this help the analyst know what to do next within five seconds?")
 
 elif st.session_state['current_view'] == 'Documentation':
-    st.header("Documentation")
-    empty_state("**Placeholder:** Documentation coming soon.")
+    st.session_state['current_view'] = 'History'
+    st.rerun()
 
