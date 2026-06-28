@@ -14,6 +14,7 @@
     - ATHENA_ARCHITECTURE.md
     - ATHENA_DEVELOPMENT_STANDARD.md
     - AGENT_SPECIFICATION_STANDARD.md
+    - ATHENA_OPERATIONAL_EVALUATION_ENGINE.md
 - Layer 3 — Agent Specifications
     - THEIA_SPECIFICATION.md — Evidence perception and discovery
     - THEMIS_SPECIFICATION.md — Constitutional governance (future)
@@ -65,6 +66,7 @@ Athena owns:
 - Workflow initiation
 - Platform-level context assembly
 - System-level continuity across agents
+- Operational evaluation preparation through the Operational Evaluation Engine
 
 Athena delegates:
 - Evidence perception and discovery to Theia
@@ -78,4 +80,5 @@ Constitution -> Architecture -> Engineering Standard -> Agent Specification -> M
 ## Future Documents
 - THEMIS_SPECIFICATION.md, HERMES_SPECIFICATION.md, and MNEMOSYNE_SPECIFICATION.md are future documents.
 - They are referenced here but must not be created until each agent is ready for formal design.
+- ATHENA_OPERATIONAL_EVALUATION_ENGINE.md defines the permanent engine-first preparation boundary for evaluation orchestration.
 - ATHENA_GLOSSARY.md is deferred until after Validation Case 003, when terminology has stabilized across multiple validation cases and agent specifications.

@@ -33,6 +33,36 @@ Non-objectives:
 Validation Portfolio Reference:
 See VALIDATION_PORTFOLIO.md for portfolio scope, current coverage, planned expansion categories, and coverage vector structure.
 
+## MVP-032 — Operational Evaluation Engine Foundation
+
+Generation III — Phase 6 Automation.
+Stable baseline required: `1cbb471` or later.
+Design specification: MVP-032_DESIGN.md
+
+Purpose:
+Establish the first durable orchestration layer for evaluation preparation.
+
+Sprint 1 creates an engine foundation that can prepare an evaluation shell to a truthful Ready for Analyst state without performing governed analyst judgment.
+
+Frozen Sprint 1 scope:
+- engine skeleton
+- lifecycle model
+- structured preparation status
+- durable persistence approach
+- idempotent evaluation lookup
+- REST delegation contract
+- Ready for Analyst shell
+- Preparation Fidelity validation
+
+Sprint 1 non-goals:
+- autonomous evidence acquisition
+- autonomous promotion
+- scoring
+- analyst rationale
+- investment decisions
+- UI redesign
+- speculative AI reasoning
+
 ## MVP-034 — Analytical Visualization
 
 Generation III capability.

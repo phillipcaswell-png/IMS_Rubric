@@ -68,6 +68,27 @@ def init_db():
         )
     """)
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evaluation_preparations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL,
+            observation_date TEXT NOT NULL,
+            thesis_id INTEGER,
+            lifecycle_state TEXT NOT NULL,
+            workspace_ready INTEGER DEFAULT 0,
+            readiness_status TEXT NOT NULL,
+            warnings_json TEXT,
+            errors_json TEXT,
+            status_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(ticker, observation_date),
+            FOREIGN KEY (thesis_id) REFERENCES theses(id)
+        )
+        """
+    )
+
     try:
         cursor.execute("ALTER TABLE theses ADD COLUMN validation_mode INTEGER DEFAULT 0")
     except sqlite3.OperationalError:

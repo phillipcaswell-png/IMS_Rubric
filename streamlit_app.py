@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import time
 from datetime import datetime
+from evaluation_engine import prepare_evaluation
 from services import (
     init_db,
     run_query,
@@ -31,7 +32,6 @@ from services import (
     OBSERVATION_STATUS_OPTIONS,
     OBSERVATION_STATUS_ACTIVE,
     INTAKE_STATUS_ARCHIVED,
-    create_thesis,
     stage_evidence,
     update_evidence_item,
     update_staged_evidence_source_text,
@@ -464,6 +464,61 @@ def open_thesis_workspace(thesis_id):
     st.rerun()
 
 
+def render_preparation_status(status_obj):
+    """Render the latest engine preparation status using the canonical object."""
+    if not status_obj or not isinstance(status_obj, dict):
+        return
+
+    readiness_status = str(status_obj.get("readiness_status", "pending")).strip()
+    lifecycle_state = str(status_obj.get("lifecycle_state", "preparing")).strip()
+    preparation_action = str(status_obj.get("preparation_action", "unknown")).strip()
+    thesis_action = str(status_obj.get("thesis_action", "unknown")).strip()
+    workspace_ready = bool(status_obj.get("workspace_ready"))
+    warnings = status_obj.get("warnings", []) or []
+    errors = status_obj.get("errors", []) or []
+
+    if readiness_status == "failed":
+        status_renderer = st.error
+    elif readiness_status == "partial":
+        status_renderer = st.warning
+    else:
+        status_renderer = st.success
+
+    lines = ["Preparing Evaluation..."]
+    if preparation_action == "reused":
+        lines.append("✓ Existing Preparation Found")
+    elif preparation_action == "created":
+        lines.append("✓ New Preparation Created")
+
+    if thesis_action == "reused":
+        lines.append("✓ Existing Evaluation Found")
+    elif thesis_action == "created":
+        lines.append("✓ New Evaluation Created")
+
+    if workspace_ready:
+        lines.append("✓ Workspace Ready")
+    elif lifecycle_state == "partial":
+        lines.append("⚠ Workspace Partially Prepared")
+    elif readiness_status == "failed":
+        lines.append("✕ Workspace Preparation Failed")
+    else:
+        lines.append("… Workspace Preparation Pending")
+
+    for warning_text in warnings:
+        lines.append(f"⚠ {warning_text}")
+    for error_text in errors:
+        lines.append(f"✕ {error_text}")
+
+    if readiness_status == "ready_for_analyst":
+        lines.append("Ready for Analyst")
+    elif readiness_status == "partial":
+        lines.append("Partial Preparation")
+    elif readiness_status == "failed":
+        lines.append("Preparation Failed")
+
+    status_renderer("\n\n".join(lines))
+
+
 def render_card_header(title, subtitle=None):
     """Render card title and optional subtitle."""
     st.markdown(
@@ -603,7 +658,7 @@ def render_portfolio_summary(portfolio_vm):
     portfolio_rows = portfolio_vm.get("rows", [])
 
     if portfolio_display_df is None or portfolio_display_df.empty:
-        empty_state("No theses found. Click '➕ New Thesis' to create one.")
+        empty_state("No theses found. Click 'Prepare Evaluation' to create or resume one.")
         return
 
     st.dataframe(portfolio_display_df, use_container_width=True)
@@ -1724,6 +1779,8 @@ if 'selected_thesis_id' not in st.session_state:
     st.session_state['selected_thesis_id'] = None
 if 'selected_evidence_id' not in st.session_state:
     st.session_state['selected_evidence_id'] = None
+if 'engine_preparation_status' not in st.session_state:
+    st.session_state['engine_preparation_status'] = None
 
 
 def _capture_navigation_event():
@@ -1928,7 +1985,7 @@ def render_sidebar_actions():
     """Render sidebar actions with existing routing behavior."""
     st.markdown("<div class='athena-section-label'>Actions</div>", unsafe_allow_html=True)
 
-    if st.button("New Thesis", key="nav_new_thesis", use_container_width=True, type="secondary"):
+    if st.button("Prepare Evaluation", key="nav_new_thesis", use_container_width=True, type="secondary"):
         st.session_state["current_view"] = "New Thesis"
         st.session_state["selected_thesis_id"] = None
         st.rerun()
@@ -2411,97 +2468,52 @@ elif st.session_state['current_view'] == 'Hermes Workflow Inbox':
         st.info("No workflow items currently require analyst attention.")
 
 elif st.session_state['current_view'] == 'New Thesis':
-    st.header("Create New Thesis")
-    
-    with st.form("new_thesis_form"):
+    st.header("Prepare Evaluation")
+    st.caption("Enter a ticker and observation date. Athena will create or resume the evaluation shell and open the Assessment Workspace.")
+
+    with st.form("prepare_evaluation_form"):
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            company_name = st.text_input("Company Name *", placeholder="Enter company name")
-        
+            ticker = st.text_input("Ticker *", placeholder="e.g., AAPL")
+
         with col2:
-            ticker = st.text_input("Ticker", placeholder="e.g., AAPL")
-        
-        decision_question = st.text_area("Decision Question *", placeholder="What is the investment decision?", height=80)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            account_type = st.selectbox(
-                "Account Type",
-                ["", "Taxable", "Roth IRA", "401(k)", "Other"]
-            )
-        
-        with col2:
-            portfolio_role = st.selectbox(
-                "Portfolio Role",
-                ["", "Core", "Satellite", "Speculative", "Income", "Growth", "Watchlist"]
-            )
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            primary_horizon = st.selectbox(
-                "Primary Horizon",
-                ["", "1 Year", "3 Years", "5 Years", "10 Years", "20 Years"]
-            )
-        
-        with col2:
-            regime_state = st.text_input("Regime State", placeholder="e.g., Bull, Bear, Transition")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            reviewer = st.text_input("Reviewer", placeholder="Name of reviewer")
-        
-        with col2:
-            status = st.selectbox(
-                "Status",
-                ["", "Draft", "Evidence Collection", "Scoring", "Decision Review", "Active Monitoring", "Closed"]
+            observation_date = st.date_input(
+                "Observation Date *",
+                value=datetime.now().date(),
+                min_value=datetime(1900, 1, 1).date(),
+                help="The engine uses ticker + observation date as the idempotent preparation key.",
             )
 
-        validation_mode_enabled = st.checkbox(
-            "Validation Mode (Historical Case Validation)",
-            value=False,
-            help="Enable historical case validation with an evidence publication cutoff date."
-        )
+        col1, col2 = st.columns(2)
 
-        evidence_cutoff_date = st.date_input(
-            "Evidence Cutoff Date",
-            value=datetime.now().date(),
-            min_value=datetime(1900, 1, 1).date(),
-            help="Evidence with publication_date after this date is blocked from promotion when validation mode is enabled."
-        )
-        
-        drl = st.selectbox("DRL", [""] + list(range(1, 10)))
-        
-        submitted = st.form_submit_button("Create Thesis", use_container_width=True)
-        
+        with col1:
+            company_name = st.text_input("Company Name (optional)", placeholder="Optional display name")
+
+        with col2:
+            reviewer = st.text_input("Reviewer (optional)", placeholder="Name of reviewer")
+
+        submitted = st.form_submit_button("Prepare Evaluation", use_container_width=True)
+
         if submitted:
-            # Validation
-            if not company_name.strip():
-                st.error("Company Name is required.")
-            elif not decision_question.strip():
-                st.error("Decision Question is required.")
+            if not ticker.strip():
+                st.error("Ticker is required.")
             else:
-                thesis_id = create_thesis(
-                    company_name=company_name,
+                preparation_status = prepare_evaluation(
                     ticker=ticker,
-                    decision_question=decision_question,
-                    account_type=account_type,
-                    portfolio_role=portfolio_role,
-                    primary_horizon=primary_horizon,
-                    regime_state=regime_state,
+                    observation_date=observation_date,
+                    company_name=company_name,
                     reviewer=reviewer,
-                    status=status,
-                    drl=drl,
-                    validation_mode_enabled=validation_mode_enabled,
-                    evidence_cutoff_date=evidence_cutoff_date,
                 )
-                st.success(f"✓ Thesis created for {company_name}")
-                st.session_state['current_view'] = 'Dashboard'
-                st.session_state['selected_thesis_id'] = None
-                st.rerun()
+                st.session_state['engine_preparation_status'] = preparation_status
+
+                thesis_id = preparation_status.get("thesis_id")
+                readiness_status = preparation_status.get("readiness_status")
+
+                if thesis_id is not None and readiness_status in ["ready_for_analyst", "partial"]:
+                    open_thesis_workspace(thesis_id)
+
+                render_preparation_status(preparation_status)
 
 elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
     # Get thesis data
@@ -2526,6 +2538,13 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         
         # Company name as header
         st.header(thesis['company_name'])
+
+        engine_preparation_status = st.session_state.get("engine_preparation_status")
+        if (
+            isinstance(engine_preparation_status, dict)
+            and engine_preparation_status.get("thesis_id") == thesis_id
+        ):
+            render_preparation_status(engine_preparation_status)
         
         # Metadata row
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -2547,8 +2566,8 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         # Tabs
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(
             [
+                "Assessment Workspace",
                 "Overview",
-            "Assessment Workspace",
                 "Evidence",
                 "Business Quality",
                 "Industry",
@@ -2562,6 +2581,9 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
         )
         
         with tab1:
+            render_assessment_workspace(thesis_id, thesis, default_validation_review_date)
+
+        with tab2:
             vm_started = time.perf_counter()
             observe_view_model(
                 view_model_name="thesis_overview_vm",
@@ -2594,9 +2616,6 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
                 )
                 raise
             render_thesis_overview(thesis_overview_vm)
-
-        with tab2:
-            render_assessment_workspace(thesis_id, thesis, default_validation_review_date)
         
         with tab3:
             # Add Evidence Item Form
