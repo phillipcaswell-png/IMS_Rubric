@@ -165,6 +165,221 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+st.markdown("""
+<style>
+/* ============================================================
+   ATHENA DESIGN SYSTEM — PHASE A
+   Typography and Color System
+   Version 1.0 — June 2026
+   ============================================================ */
+
+/* Main background */
+.stApp {
+    background-color: #0A0A0F;
+}
+
+/* Main content area */
+.main .block-container {
+    background-color: #0A0A0F;
+    padding: 2rem 3rem;
+    max-width: 1100px;
+}
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background-color: #12121A;
+    border-right: 1px solid #1E1E2E;
+}
+
+[data-testid="stSidebar"] * {
+    color: #E8E6E0;
+}
+
+/* Headings */
+h1, h2, h3 {
+    font-family: "Cormorant Garamond", "Playfair Display", Georgia, serif;
+    color: #E8E6E0;
+    font-weight: 300;
+    letter-spacing: 0.03em;
+}
+
+/* Body text */
+p, li, label, div {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #E8E6E0;
+}
+
+/* Metric values */
+[data-testid="stMetricValue"] {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    color: #C5A028;
+    font-size: 1.8rem;
+}
+
+/* Form inputs */
+.stTextInput input,
+.stTextArea textarea,
+.stSelectbox select,
+.stNumberInput input {
+    background-color: #12121A;
+    border: 1px solid #1E1E2E;
+    color: #E8E6E0;
+    border-radius: 4px;
+    font-family: Inter, sans-serif;
+}
+
+/* Input focus */
+.stTextInput input:focus,
+.stTextArea textarea:focus {
+    border-color: #C5A028;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(197, 160, 40, 0.2);
+}
+
+/* Primary buttons */
+.stButton > button {
+    background-color: #C5A028;
+    color: #0A0A0F;
+    border: none;
+    border-radius: 4px;
+    font-family: Inter, sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 1.5rem;
+    transition: background-color 0.15s ease;
+}
+
+.stButton > button:hover {
+    background-color: #D4AF37;
+    color: #0A0A0F;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    background-color: #12121A;
+    border-bottom: 1px solid #1E1E2E;
+    gap: 0;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background-color: transparent;
+    color: #8B8B9A;
+    border-bottom: 2px solid transparent;
+    font-family: Inter, sans-serif;
+    font-size: 0.9rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.75rem 1.25rem;
+}
+
+.stTabs [aria-selected="true"] {
+    color: #C5A028;
+    border-bottom-color: #C5A028;
+    background-color: transparent;
+}
+
+/* Dataframes */
+[data-testid="stDataFrame"] {
+    background-color: #12121A;
+    border: 1px solid #1E1E2E;
+    border-radius: 4px;
+}
+
+/* Alerts */
+.stAlert {
+    border-radius: 4px;
+    border-left: 3px solid #C5A028;
+    background-color: #12121A;
+}
+
+/* Dividers */
+hr {
+    border-color: #1E1E2E;
+    margin: 2rem 0;
+}
+
+/* Captions */
+.stCaption, small {
+    color: #8B8B9A;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.8rem;
+}
+
+/* Sidebar buttons */
+[data-testid="stSidebar"] .stButton > button {
+    background-color: transparent;
+    color: #E8E6E0;
+    border: 1px solid #1E1E2E;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 1rem;
+}
+
+[data-testid="stSidebar"] .stButton > button:hover {
+    background-color: #1E1E2E;
+    color: #C5A028;
+    border-color: #C5A028;
+}
+
+/* Expanders */
+.streamlit-expanderHeader {
+    background-color: #12121A;
+    color: #E8E6E0;
+    border: 1px solid #1E1E2E;
+    border-radius: 4px;
+    font-family: Inter, sans-serif;
+}
+
+/* Checkboxes and radio */
+.stCheckbox label, .stRadio label {
+    color: #E8E6E0;
+    font-family: Inter, sans-serif;
+}
+
+/* Progress bars */
+.stProgress > div > div {
+    background-color: #C5A028;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0A0A0F; }
+::-webkit-scrollbar-thumb {
+    background: #1E1E2E;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: #C5A028; }
+
+/* Select boxes dropdown */
+[data-baseweb="select"] {
+    background-color: #12121A;
+}
+
+[data-baseweb="select"] > div {
+    background-color: #12121A;
+    border-color: #1E1E2E;
+    color: #E8E6E0;
+}
+
+/* Dropdown menu items */
+[data-baseweb="menu"] {
+    background-color: #12121A;
+    border: 1px solid #1E1E2E;
+}
+
+[role="option"] {
+    background-color: #12121A;
+    color: #E8E6E0;
+}
+
+[role="option"]:hover {
+    background-color: #1E1E2E;
+    color: #C5A028;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 # =============================================================================
 # IMS UI COMPONENT LIBRARY
 # =============================================================================
@@ -201,10 +416,20 @@ def summary_field(label, value):
 init_db()
 
 # Application header
-st.title("Athena")
-st.markdown("### Governed Investment Intelligence")
+st.markdown(
+    '<h1 style="font-family: Cormorant Garamond, Playfair Display,'
+    ' Georgia, serif; font-weight: 300; font-size: 2.8rem;'
+    ' letter-spacing: 0.08em; color: #E8E6E0; margin-bottom: 0;">'
+    'Athena</h1>',
+    unsafe_allow_html=True
+)
 st.markdown("---")
-st.markdown("**Governed by:** Athena Charter v1.0")
+st.markdown(
+    '<p style="font-family: JetBrains Mono, Consolas, monospace;'
+    ' font-size: 0.75rem; color: #C5A028; letter-spacing: 0.1em;'
+    ' text-transform: uppercase;">⚖ Governed by Athena Charter v1.0</p>',
+    unsafe_allow_html=True
+)
 st.markdown("---")
 
 # Initialize session state
