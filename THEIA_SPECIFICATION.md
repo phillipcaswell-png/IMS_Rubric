@@ -107,8 +107,8 @@ Log invocation events only, never log suggestion output, advisory output must ne
 ## Capability Registry
 | Capability | Purpose | Inputs | Surfaces | UI Name | Status | Maturity | MVP |
 |---|---|---|---|---|---|---|---|
-| Extraction | Surface potentially relevant passages from promoted evidence for analyst review | Promoted evidence document text | Ephemeral suggested passages | Extraction Skill | Planned | Level 0 | MVP-023 |
-| Passage Detection | Identify document passages that may relate to governed pillars | Promoted evidence document text | Advisory passage candidates and pillar signals | Passage Detection Skill | Planned | Level 0 | MVP-023 |
+| Extraction | Surface potentially relevant passages from promoted evidence for analyst review | Promoted evidence document text | Ephemeral suggested passages | Extraction Skill | Implemented | Level 1 — Experimental | MVP-023 |
+| Passage Detection | Identify document passages that may relate to governed pillars | Promoted evidence document text | Advisory passage candidates and pillar signals | Passage Detection Skill | Implemented | Level 1 — Experimental | MVP-023 |
 | Entity Recognition | Identify companies, people, products, geographies, and organizations in evidence | Evidence document text | Advisory entity list | Entity Recognition Skill | Future | Level 0 | TBD |
 | Timeline Extraction | Identify dated events and sequence them for analyst review | Evidence document text and metadata | Advisory timeline candidates | Timeline Extraction Skill | Future | Level 0 | TBD |
 | Financial Statement Parsing | Extract structured financial statement items for analyst review | Filings and financial tables | Advisory financial data candidates | Financial Statement Parsing Skill | Future | Level 0 | TBD |
