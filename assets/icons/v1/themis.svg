@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     fill="none" stroke="#C5A028" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- Gavel head -->
+  <rect x="2" y="8" width="8" height="5" rx="1"/>
+  <!-- Gavel handle -->
+  <line x1="9" y1="12" x2="20" y2="21"/>
+  <!-- Strike line (authority) -->
+  <line x1="2" y1="20" x2="10" y2="20"/>
+  <!-- Impact marks -->
+  <line x1="13" y1="5" x2="15" y2="3"/>
+  <line x1="16" y1="6" x2="18" y2="4"/>
+  <line x1="14" y1="8" x2="17" y2="7"/>
+</svg>

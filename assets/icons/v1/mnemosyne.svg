@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     fill="none" stroke="#C5A028" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- Outer ring -->
+  <circle cx="12" cy="12" r="10"/>
+  <!-- Middle ring -->
+  <circle cx="12" cy="12" r="6.5"/>
+  <!-- Inner ring -->
+  <circle cx="12" cy="12" r="3"/>
+  <!-- Center point -->
+  <circle cx="12" cy="12" r="1" fill="#C5A028"/>
+</svg>
