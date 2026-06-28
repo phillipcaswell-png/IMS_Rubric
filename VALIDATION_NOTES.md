@@ -324,3 +324,41 @@ Design review initiated for MVP-022 — Governed Evidence Extraction.
 This observation is specific to Validation Case 002 and does not,
 by itself, justify architectural change. Architectural evolution
 will follow the normal governed development process.
+
+### Validation Case 002 - Action 2 Execution (Kodak Promoted Evidence Updates)
+
+Execution date: 2026-06-27
+
+Scope executed through Athena UI only:
+
+- Opened thesis_id=7 (Eastman Kodak Company) in the Evidence tab.
+- Updated Relevant Source Text on all three promoted Kodak evidence items using passages from actual SEC filings.
+
+Evidence item updates:
+
+1. Evidence #11 - Kodak Q2 2000 Form 10-Q
+	Filing reference: SEC accession 0000031235-00-000008 (period ended 2000-06-30).
+	Added source_text covering segment sales declines, digital growth offset, digital cash generation, and first-half restructuring charges.
+
+2. Evidence #10 - Kodak Q1 2000 Form 10-Q
+	Filing reference: SEC accession 0000031235-00-000007 (period ended 2000-03-31).
+	Added source_text covering flat total sales, digital product mix expansion, and disclosure that digital/digitization products and services represented 23% of company sales.
+
+3. Evidence #9 - Kodak 1999 Annual Report (Form 10-K)
+	Filing reference: SEC accession 0000031235-00-000004 (period ended 1999-12-31).
+	Added source_text covering Consumer Imaging segment sales and the filing's discussion of Kodak's transition bridge between silver halide and digital imaging workflows.
+
+Theia Extraction runs (Governed Evidence Observations panel):
+
+- Ran Extract Passages for #11, #10, and #9.
+- UI returned: Missing Anthropic API configuration: ANTHROPIC_API_KEY.
+- Result: extraction invocation attempted for each promoted Kodak item, but suggestion generation was blocked by missing API configuration in the active runtime.
+
+Follow-up: API configuration was resolved by installing the anthropic SDK into
+the project virtual environment and loading ANTHROPIC_API_KEY from a .env file
+via python-dotenv. JSON parsing was also corrected to strip markdown code fences
+from API responses. After both fixes, extraction succeeded against evidence #9
+(Kodak 1999 Annual Report) returning 5 governed suggestions covering business
+model resilience, industry disruption, operational risk, risk disclosures, and
+capital allocation strategy. Suggestion content remained ephemeral — no
+suggestion text was written to any governed table.
