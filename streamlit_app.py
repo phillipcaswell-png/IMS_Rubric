@@ -159,7 +159,7 @@ RAG_ORANGE = "Orange"
 
 # Page configuration
 st.set_page_config(
-    page_title="Investment Management System",
+    page_title="Athena",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -201,10 +201,10 @@ def summary_field(label, value):
 init_db()
 
 # Application header
-st.title("Investment Management System (IMS)")
-st.markdown("### Manual Evaluation MVP")
+st.title("Athena")
+st.markdown("### Governed Investment Intelligence")
 st.markdown("---")
-st.markdown("**Governed by:** IMS Charter v1.0")
+st.markdown("**Governed by:** Athena Charter v1.0")
 st.markdown("---")
 
 # Initialize session state
@@ -965,8 +965,8 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
             
             st.divider()
             
-            # Section 4: IMS Constitutional Status
-            section_header("IMS Constitutional Status")
+            # Section 4: Athena Constitutional Status
+            section_header("Athena Constitutional Status")
             
             # Milestones derived from metrics
             milestones = [
@@ -991,7 +991,7 @@ elif st.session_state['current_view'] in ['Thesis Detail', 'Thesis Workspace']:
 
             json_string = json.dumps(thesis_json, indent=2, default=str)
             st.download_button(
-                label="Download IMS Evaluation JSON",
+                label="Download Athena Evaluation JSON",
                 data=json_string,
                 file_name=f"ims_thesis_{thesis_id}.json",
                 mime="application/json",
