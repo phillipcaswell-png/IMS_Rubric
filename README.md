@@ -86,6 +86,7 @@ They do not govern each other.
 - AGENT_SPECIFICATION_STANDARD.md: canonical template for agent constitutional specifications.
 - THEIA_SPECIFICATION.md: active Theia constitutional and capability specification.
 - ATHENA_OPERATIONAL_EVALUATION_ENGINE.md: design principles for the Operational Evaluation Engine.
+- ATHENA_PRODUCT_READINESS_STANDARD.md: product readiness evaluation standard and readiness review criteria.
 - VALIDATION_PORTFOLIO.md: portfolio-level validation coverage targets.
 - VALIDATION_NOTES.md: case execution notes and observations.
 - LESSONS_LEARNED.md: operational learning record.

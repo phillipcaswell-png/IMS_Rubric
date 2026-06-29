@@ -4,13 +4,19 @@
 Evidence perception and discovery agent.
 
 ## Constitutional Authority
-Constitutional authority:
-- IMS Charter v1.0
-- GOVERNANCE_NOTES.md
+Theia operates under Athena's governing authority chain:
 
-Engineering authority:
+- IMS Charter
 - ATHENA_ARCHITECTURE.md
+- ATHENA_INFORMATION_LIFECYCLE.md
+- ATHENA_DEVELOPMENT_STANDARD.md
 - AGENT_SPECIFICATION_STANDARD.md
+
+## Informative References
+
+The following documents may provide historical context or implementation guidance but do not create constitutional authority:
+
+- GOVERNANCE_NOTES.md
 
 Specification authority:
 - THEIA_SPECIFICATION.md
