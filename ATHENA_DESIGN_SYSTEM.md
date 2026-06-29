@@ -1,3 +1,12 @@
+---
+Document Purpose: Define the active Athena experience design foundation for page identity, hierarchy, and reusable UI language.
+Authority: IMS Charter v1.0; ATHENA_ARCHITECTURE.md.
+Inputs: ATHENA_ARCHITECTURE.md; ATHENA_DEVELOPMENT_STANDARD.md.
+Outputs: Experience implementation guidance for streamlit_app.py and related design-layer standards.
+Updated When: Product experience contracts, layout rules, or canonical UI language change.
+Does Not Cover: Governance logic, workflow state transitions, service behavior, or database schema.
+---
+
 # Athena Design System
 
 ## Purpose
@@ -77,3 +86,12 @@ Athena should feel like a polished investment intelligence platform: dense enoug
 - Centralize repeated UI text and shared visual tokens where it reduces duplication safely.
 - Avoid broad refactors that move workflow logic or governance logic.
 - Keep UI changes reversible and local to the presentation layer.
+
+## Related Documents
+
+- README.md
+- ATHENA_ARCHITECTURE.md
+- ATHENA_DEVELOPMENT_STANDARD.md
+- design/ATHENA_UX_PRINCIPLES.md
+- design/ATHENA_VIEW_MODEL_STANDARD.md
+- design/ATHENA_COMPONENT_LIBRARY.md

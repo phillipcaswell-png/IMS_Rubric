@@ -1,3 +1,5 @@
+<!-- Status: Superseded by ATHENA_DESIGN_SYSTEM.md -->
+
 Document Authority: Versioned
 Governed By: IMS Charter v1.0
 Document Owner: Athena Product Design

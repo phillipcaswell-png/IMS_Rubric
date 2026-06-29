@@ -1,3 +1,12 @@
+---
+Document Purpose: Define the required structure and constitutional constraints for all Athena agent specifications.
+Authority: IMS Charter v1.0; ATHENA_ARCHITECTURE.md.
+Inputs: IMS Charter v1.0; ATHENA_ARCHITECTURE.md; ATHENA_INFORMATION_LIFECYCLE.md.
+Outputs: Agent specifications such as THEIA_SPECIFICATION.md.
+Updated When: Agent governance template or mandatory constitutional constraints change.
+Does Not Cover: Individual agent capability behavior details or implementation internals.
+---
+
 # Agent Specification Standard
 
 ## Purpose
@@ -141,3 +150,11 @@ The following changes require constitutional review before implementation:
 - Capability maturity promotion to Level 3
 
 Implementation details may evolve without constitutional review provided they do not alter constitutional behavior.
+
+## Related Documents
+
+- README.md
+- ATHENA_ARCHITECTURE.md
+- ATHENA_INFORMATION_LIFECYCLE.md
+- ATHENA_DEVELOPMENT_STANDARD.md
+- THEIA_SPECIFICATION.md

@@ -1,3 +1,5 @@
+<!-- Status: Active Standard -->
+
 Document Authority: Versioned
 Version: 1.0
 Status: Frozen

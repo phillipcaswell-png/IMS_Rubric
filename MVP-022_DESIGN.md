@@ -1,3 +1,5 @@
+<!-- Status: Historical Design Record -->
+
 # MVP-022 — Governed Evidence Extraction
 
 ## Status

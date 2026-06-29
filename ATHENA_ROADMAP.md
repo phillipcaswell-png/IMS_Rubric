@@ -1,3 +1,14 @@
+<!-- Status: Active Standard -->
+
+---
+Document Purpose: Track Athena milestone sequencing and planning intent across generations.
+Authority: IMS Charter v1.0; ATHENA_ARCHITECTURE.md; ATHENA_DEVELOPMENT_STANDARD.md.
+Inputs: Validation outcomes, architecture decisions, and approved development standards.
+Outputs: Prioritized planning context for future implementation and validation work.
+Updated When: Milestone status, sequencing, or approved strategic direction changes.
+Does Not Cover: Runtime behavior definitions, constitutional authority changes, or implementation details.
+---
+
 v1.0.0 — Constitutional Baseline (complete)
   ↓
 MVP-019 — Service Layer Consolidation
@@ -142,3 +153,11 @@ Constitutional constraint for all visualizations:
 - Confidence Cone comparison is advisory only
 - Framework Calibration Dashboard is observational only
 - No visualization modifies any historical decision record
+
+## Related Documents
+
+- README.md
+- ATHENA_ARCHITECTURE.md
+- ATHENA_DEVELOPMENT_STANDARD.md
+- VALIDATION_PORTFOLIO.md
+- ATHENA_OPERATIONAL_EVALUATION_ENGINE.md

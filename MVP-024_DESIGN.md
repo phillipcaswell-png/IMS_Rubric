@@ -1,3 +1,5 @@
+<!-- Status: Historical Design Record -->
+
 # MVP-024 Design Container
 Implements: THEIA_SPECIFICATION.md
 

@@ -1,3 +1,5 @@
+<!-- Status: Active Standard -->
+
 # Athena View Model Standard
 
 | View | View Model | Status | Phase | Notes |

@@ -1,3 +1,12 @@
+---
+Document Purpose: Define enduring design principles for the Athena Operational Evaluation Engine.
+Authority: IMS Charter v1.0; ATHENA_ARCHITECTURE.md; ATHENA_DEVELOPMENT_STANDARD.md.
+Inputs: ATHENA_ARCHITECTURE.md; ATHENA_INFORMATION_LIFECYCLE.md.
+Outputs: Implementation constraints for evaluation preparation orchestration.
+Updated When: Engine constitutional boundaries or preparation model principles change.
+Does Not Cover: Structural authority hierarchy, analyst decision policy, or UI design standards.
+---
+
 # Operational Evaluation Engine Design Principles
 
 The Operational Evaluation Engine is a permanent Athena subsystem.
@@ -149,3 +158,10 @@ Governed Decision
 Historical Learning
 
 The engine's purpose is complete when analysts spend their time evaluating businesses rather than assembling evaluations.
+
+## Related Documents
+
+- README.md
+- ATHENA_ARCHITECTURE.md
+- ATHENA_INFORMATION_LIFECYCLE.md
+- ATHENA_DEVELOPMENT_STANDARD.md

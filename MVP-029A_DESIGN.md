@@ -1,3 +1,5 @@
+<!-- Status: Historical Design Record -->
+
 Document Authority: Versioned
 Governed By: IMS Charter v1.0
 Document Owner: Athena Architecture

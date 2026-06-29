@@ -1,3 +1,12 @@
+---
+Document Purpose: Define the governed lifecycle, authority classification, and transition semantics for Athena information.
+Authority: IMS Charter v1.0.
+Inputs: IMS Charter v1.0; ATHENA_ARCHITECTURE.md.
+Outputs: Lifecycle constraints for agent specs, services, and workflow implementation.
+Updated When: Lifecycle stages, transition semantics, ownership, or authority classifications change.
+Does Not Cover: Operational improvement loop, UI contracts, or implementation-specific code design.
+---
+
 # Athena Information Lifecycle
 ## Document Metadata
 Field	Value
@@ -14,6 +23,14 @@ May Not Modify	IMS Charter, constitutional principles, decision-quality standard
 Dependencies	IMS Charter v1.0; ATHENA_ARCHITECTURE.md
 Supersedes	None
 Superseded By	
+
+## Related Documents
+
+- README.md
+- ATHENA_ARCHITECTURE.md
+- ATHENA_DEVELOPMENT_STANDARD.md
+- ATHENA_OPERATIONAL_EVALUATION_ENGINE.md
+
 ## 1. Purpose
 The Athena Information Lifecycle defines the canonical progression of information within Athena, from externally sourced evidence through governed decision-making, historical validation, and framework learning.
 
