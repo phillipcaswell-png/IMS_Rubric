@@ -34,6 +34,8 @@ Each Insight should contain:
 - Promotion Criteria
 - Implementation Status
 
+For Knowledge Gaps discovered during replay, see [KNOWLEDGE_GAP_REGISTER.md](KNOWLEDGE_GAP_REGISTER.md).
+
 ---
 
 # AI-001 — Knowledge Preservation Principle
@@ -182,6 +184,66 @@ No implementation authorized.
 
 ---
 
+## Candidate Architectural Insights
+
+Purpose:
+
+Candidate Architectural Insights represent observations from a single Historical Replay Validation case.
+
+They have not yet achieved repeated validation.
+
+They authorize no implementation.
+
+Promotion requires repeated replay evidence.
+
+---
+
+### Candidate AI-004 — Knowledge Construction Transition
+
+**Discovery Context**
+
+Historical Replay Validation 001
+
+Microsoft
+
+Phase 1 Knowledge Record construction
+
+---
+
+**Observation**
+
+Replay demonstrated a measurable transition in analyst effort.
+
+Early replay focused primarily on evidence acquisition.
+
+Once evidence acquisition became reliable, analyst effort shifted toward determining what deserved permanent institutional preservation within the Knowledge Record.
+
+The governing question changed from:
+
+> "Where is the evidence?"
+
+to
+
+> "What deserves to be remembered?"
+
+This represents an observed transition in analyst cognition during governed replay.
+
+---
+
+**Promotion Criteria**
+
+Observe the same transition during at least one additional Historical Replay Validation case.
+
+---
+
+**Implementation Status**
+
+Observation only.
+
+No implementation authorized.
+
+---
+
 ## Architectural Validations
 
 **Status:** Validated • Evidence Record
@@ -293,6 +355,38 @@ Failure of any stage constitutes regression against AV-001 and shall be classifi
 
 AV-001 remains active for every future Historical Replay Validation case.
 
+### Observed Replay Refinement
+
+During HRV-001 replay demonstrated additional analyst activity occurring between Extraction and Candidate Observation.
+
+Observed replay sequence:
+
+```
+Evidence
+	↓
+Extraction
+	↓
+Candidate Passage
+	↓
+Analyst Selection
+	↓
+Candidate Observation
+	↓
+Promotion
+	↓
+Observation
+	↓
+Knowledge Record
+```
+
+Current replay evidence indicates that Analyst Selection is an observed knowledge-construction activity rather than a constitutional Information Lifecycle stage.
+
+Accordingly:
+
+- AV-001 remains unchanged.
+- This refinement is observational.
+- Future Historical Replay Validation cases will determine whether Analyst Selection represents an implementation detail or a durable architectural concept.
+
 ---
 
 ## Pre-Release Verification Requirement
@@ -308,3 +402,9 @@ AV-001 verifies governed extraction workflow regression.
 Neither verification may be omitted independently.
 
 Both shall appear together in every future pre-release verification checklist.
+
+---
+
+## Knowledge Gap Register Reference
+
+The authoritative Knowledge Gap Register is [KNOWLEDGE_GAP_REGISTER.md](KNOWLEDGE_GAP_REGISTER.md).

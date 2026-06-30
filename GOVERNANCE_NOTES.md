@@ -70,3 +70,21 @@ Deferred Architectural Intentions:
 - Canonical validation lock helper
 - Subsystem summary services
 - Validation Portfolio concept
+
+## Future Governance Consideration
+
+`ARCHITECTURAL_INSIGHTS.md` now contains:
+
+- Architectural Insights
+- Candidate Architectural Insights
+- Architectural Validations
+
+A future governance milestone should evaluate renaming the document to:
+
+`ARCHITECTURAL_EVIDENCE.md`
+
+to better reflect its constitutional purpose.
+
+This is a deferred governance consideration only.
+
+No implementation or file renaming is authorized at this time.
