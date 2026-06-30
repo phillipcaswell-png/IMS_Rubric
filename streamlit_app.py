@@ -1851,30 +1851,64 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
         drl_key = f"assessment_workspace_drl_{thesis_id}_{pillar_id}"
         review_date_key = f"assessment_workspace_review_date_{thesis_id}_{pillar_id}"
 
-        st.session_state.setdefault(score_key, int(existing_record["score"]) if existing_record is not None and pd.notna(existing_record["score"]) else 5)
+        assessment_record_signature_key = f"assessment_workspace_record_signature_{thesis_id}_{pillar_id}"
+        assessment_record_signature = (
+            None if existing_record is None else existing_record.get("id"),
+            None if existing_record is None else existing_record.get("score"),
+            None if existing_record is None else existing_record.get("rag_status"),
+            None if existing_record is None else existing_record.get("evidence_grade"),
+            None if existing_record is None else existing_record.get("confidence_basis"),
+            None if existing_record is None else existing_record.get("primary_sources"),
+            None if existing_record is None else existing_record.get("judgment"),
+            None if existing_record is None else existing_record.get("inference"),
+            None if existing_record is None else existing_record.get("falsification_trigger"),
+            None if existing_record is None else existing_record.get("reviewer"),
+            None if existing_record is None else existing_record.get("review_date"),
+            None if existing_record is None else existing_record.get("drl"),
+            tuple(linked_evidence_defaults),
+        )
+
+        default_score_value = int(existing_record["score"]) if existing_record is not None and pd.notna(existing_record["score"]) else 5
         default_rag_options = [RAG_GREEN, RAG_YELLOW, RAG_ORANGE, RAG_RED] if pillar_id.startswith("B") else ["", RAG_GREEN, RAG_YELLOW, RAG_ORANGE, RAG_RED]
         default_rag_value = existing_record["rag_status"] if existing_record is not None and pd.notna(existing_record["rag_status"]) else default_rag_options[0]
         if default_rag_value not in default_rag_options:
             default_rag_value = default_rag_options[0]
-        st.session_state.setdefault(rag_key, default_rag_value)
         default_grade_options = [GRADE_A, GRADE_B, GRADE_C, GRADE_D] if pillar_id.startswith("B") else ["", GRADE_A, GRADE_B, GRADE_C, GRADE_D]
         default_grade_value = existing_record["evidence_grade"] if existing_record is not None and pd.notna(existing_record["evidence_grade"]) else default_grade_options[0]
         if default_grade_value not in default_grade_options:
             default_grade_value = default_grade_options[0]
-        st.session_state.setdefault(grade_key, default_grade_value)
-        st.session_state.setdefault(confidence_key, existing_record["confidence_basis"] if existing_record is not None and pd.notna(existing_record["confidence_basis"]) else "")
-        st.session_state.setdefault(sources_key, existing_record["primary_sources"] if existing_record is not None and pd.notna(existing_record["primary_sources"]) else "")
-        st.session_state.setdefault(judgment_key, _get_judgment_default(existing_record))
-        st.session_state.setdefault(falsification_key, existing_record["falsification_trigger"] if existing_record is not None and pd.notna(existing_record["falsification_trigger"]) else "")
-        st.session_state.setdefault(reviewer_key, existing_record["reviewer"] if existing_record is not None and pd.notna(existing_record["reviewer"]) else (thesis["reviewer"] if thesis["reviewer"] else ""))
-        st.session_state.setdefault(notes_key, "")
-        st.session_state.setdefault(linked_key, linked_evidence_defaults)
         drl_options = [""] + list(range(1, 10))
         default_drl = existing_record["drl"] if existing_record is not None and pd.notna(existing_record["drl"]) else ""
         if default_drl not in drl_options:
             default_drl = ""
-        st.session_state.setdefault(drl_key, default_drl)
-        st.session_state.setdefault(review_date_key, default_review_date)
+
+        if st.session_state.get(assessment_record_signature_key) != assessment_record_signature:
+            st.session_state[assessment_record_signature_key] = assessment_record_signature
+            st.session_state[score_key] = default_score_value
+            st.session_state[rag_key] = default_rag_value
+            st.session_state[grade_key] = default_grade_value
+            st.session_state[confidence_key] = existing_record["confidence_basis"] if existing_record is not None and pd.notna(existing_record["confidence_basis"]) else ""
+            st.session_state[sources_key] = existing_record["primary_sources"] if existing_record is not None and pd.notna(existing_record["primary_sources"]) else ""
+            st.session_state[judgment_key] = _get_judgment_default(existing_record)
+            st.session_state[falsification_key] = existing_record["falsification_trigger"] if existing_record is not None and pd.notna(existing_record["falsification_trigger"]) else ""
+            st.session_state[reviewer_key] = existing_record["reviewer"] if existing_record is not None and pd.notna(existing_record["reviewer"]) else (thesis["reviewer"] if thesis["reviewer"] else "")
+            st.session_state.setdefault(notes_key, "")
+            st.session_state[linked_key] = linked_evidence_defaults
+            st.session_state[drl_key] = default_drl
+            st.session_state[review_date_key] = default_review_date
+        else:
+            st.session_state.setdefault(score_key, default_score_value)
+            st.session_state.setdefault(rag_key, default_rag_value)
+            st.session_state.setdefault(grade_key, default_grade_value)
+            st.session_state.setdefault(confidence_key, existing_record["confidence_basis"] if existing_record is not None and pd.notna(existing_record["confidence_basis"]) else "")
+            st.session_state.setdefault(sources_key, existing_record["primary_sources"] if existing_record is not None and pd.notna(existing_record["primary_sources"]) else "")
+            st.session_state.setdefault(judgment_key, _get_judgment_default(existing_record))
+            st.session_state.setdefault(falsification_key, existing_record["falsification_trigger"] if existing_record is not None and pd.notna(existing_record["falsification_trigger"]) else "")
+            st.session_state.setdefault(reviewer_key, existing_record["reviewer"] if existing_record is not None and pd.notna(existing_record["reviewer"]) else (thesis["reviewer"] if thesis["reviewer"] else ""))
+            st.session_state.setdefault(notes_key, "")
+            st.session_state.setdefault(linked_key, linked_evidence_defaults)
+            st.session_state.setdefault(drl_key, default_drl)
+            st.session_state.setdefault(review_date_key, default_review_date)
 
         col1, col2 = st.columns(2)
         with col1:
@@ -5404,66 +5438,76 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                     selected_observation = selected_observation_df.iloc[0] if not selected_observation_df.empty else None
 
                     if selected_observation is not None:
+                        observation_update_signature = (
+                            selected_observation_evidence_id,
+                            selected_observation_id,
+                            selected_observation.get("pillar_id"),
+                            selected_observation.get("observation_category"),
+                            selected_observation.get("observation_text"),
+                            selected_observation.get("evidence_quote"),
+                            selected_observation.get("source_location"),
+                            selected_observation.get("analyst_confidence"),
+                            selected_observation.get("status"),
+                        )
+                        if st.session_state.get("observation_update_signature") != observation_update_signature:
+                            st.session_state["observation_update_signature"] = observation_update_signature
+                            st.session_state["observation_update_pillar_id"] = str(selected_observation["pillar_id"]) if pd.notna(selected_observation["pillar_id"]) else ""
+                            current_category = str(selected_observation["observation_category"]).strip() if pd.notna(selected_observation["observation_category"]) else OBSERVATION_CATEGORY_OPTIONS[0]
+                            st.session_state["observation_update_category"] = current_category if current_category in OBSERVATION_CATEGORY_OPTIONS else OBSERVATION_CATEGORY_OPTIONS[0]
+                            st.session_state["observation_update_text"] = str(selected_observation["observation_text"]) if pd.notna(selected_observation["observation_text"]) else ""
+                            st.session_state["observation_update_quote"] = str(selected_observation["evidence_quote"]) if pd.notna(selected_observation["evidence_quote"]) else ""
+                            st.session_state["observation_update_source_location"] = str(selected_observation["source_location"]) if pd.notna(selected_observation["source_location"]) else ""
+                            current_confidence = str(selected_observation["analyst_confidence"]).strip() if pd.notna(selected_observation["analyst_confidence"]) else "Medium"
+                            st.session_state["observation_update_confidence"] = current_confidence if current_confidence in ["Low", "Medium", "High"] else "Medium"
+                            current_status = str(selected_observation["status"]).strip() if pd.notna(selected_observation["status"]) else OBSERVATION_STATUS_ACTIVE
+                            st.session_state["observation_update_status"] = current_status if current_status in OBSERVATION_STATUS_OPTIONS else OBSERVATION_STATUS_ACTIVE
+                            st.session_state["observation_updated_by"] = thesis['reviewer'] if thesis['reviewer'] else "System"
+
                         with st.form("observation_update_form"):
                             col1, col2 = st.columns(2)
                             with col1:
                                 update_pillar_id = st.text_input(
                                     "Update Pillar ID",
-                                    value=str(selected_observation["pillar_id"]) if pd.notna(selected_observation["pillar_id"]) else "",
                                     key="observation_update_pillar_id",
                                 )
                             with col2:
-                                current_category = str(selected_observation["observation_category"]).strip() if pd.notna(selected_observation["observation_category"]) else OBSERVATION_CATEGORY_OPTIONS[0]
-                                update_category_index = OBSERVATION_CATEGORY_OPTIONS.index(current_category) if current_category in OBSERVATION_CATEGORY_OPTIONS else 0
                                 update_observation_category = st.selectbox(
                                     "Update Category",
                                     options=OBSERVATION_CATEGORY_OPTIONS,
-                                    index=update_category_index,
                                     key="observation_update_category",
                                 )
 
                             update_observation_text = st.text_area(
                                 "Update Observation Text",
-                                value=str(selected_observation["observation_text"]) if pd.notna(selected_observation["observation_text"]) else "",
                                 height=100,
                                 key="observation_update_text",
                             )
                             update_evidence_quote = st.text_area(
                                 "Update Evidence Quote",
-                                value=str(selected_observation["evidence_quote"]) if pd.notna(selected_observation["evidence_quote"]) else "",
                                 height=80,
                                 key="observation_update_quote",
                             )
                             update_source_location = st.text_input(
                                 "Update Source Location",
-                                value=str(selected_observation["source_location"]) if pd.notna(selected_observation["source_location"]) else "",
                                 key="observation_update_source_location",
                             )
 
                             col1, col2, col3 = st.columns(3)
                             with col1:
-                                current_confidence = str(selected_observation["analyst_confidence"]).strip() if pd.notna(selected_observation["analyst_confidence"]) else "Medium"
-                                confidence_options = ["Low", "Medium", "High"]
-                                confidence_index = confidence_options.index(current_confidence) if current_confidence in confidence_options else 1
                                 update_analyst_confidence = st.selectbox(
                                     "Update Analyst Confidence",
-                                    options=confidence_options,
-                                    index=confidence_index,
+                                    options=["Low", "Medium", "High"],
                                     key="observation_update_confidence",
                                 )
                             with col2:
-                                current_status = str(selected_observation["status"]).strip() if pd.notna(selected_observation["status"]) else OBSERVATION_STATUS_ACTIVE
-                                status_index = OBSERVATION_STATUS_OPTIONS.index(current_status) if current_status in OBSERVATION_STATUS_OPTIONS else 0
                                 update_status = st.selectbox(
                                     "Update Status",
                                     options=OBSERVATION_STATUS_OPTIONS,
-                                    index=status_index,
                                     key="observation_update_status",
                                 )
                             with col3:
                                 update_by = st.text_input(
                                     "Updated By",
-                                    value=thesis['reviewer'] if thesis['reviewer'] else "System",
                                     key="observation_updated_by",
                                 )
 
@@ -5525,7 +5569,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 "B6 Industry Position",
                 "B7 Systems Importance"
             ]
-            selected_pillar = st.selectbox("Select Pillar to Score", pillar_options)
+            selected_pillar = st.selectbox("Select Pillar to Score", pillar_options, key="business_pillar")
 
             pillar_id = selected_pillar.split(" ", 1)[0]
             pillar_name = selected_pillar.split(" ", 1)[1]
@@ -5867,6 +5911,9 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 st.session_state["invest_reviewer"] = existing_record['reviewer'] if existing_record is not None and pd.notna(existing_record['reviewer']) else ""
                 st.session_state["invest_date"] = pd.to_datetime(existing_record['review_date']).date() if existing_record is not None and pd.notna(existing_record['review_date']) else default_validation_review_date
                 st.session_state["invest_drl"] = existing_record['drl'] if existing_record is not None and pd.notna(existing_record['drl']) else ""
+                st.session_state["invest_links"] = linked_evidence_defaults
+            else:
+                st.session_state.setdefault("invest_links", linked_evidence_defaults)
 
             available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
             linked_evidence_defaults = []
@@ -5939,7 +5986,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                     selected_evidence_links = st.multiselect(
                         "Linked Evidence Items",
                         options=available_evidence_ids,
-                        default=linked_evidence_defaults,
+                        key="invest_links",
                         format_func=lambda evidence_id: available_evidence_labels.get(evidence_id, f"#{evidence_id}"),
                         help="Link one or more evidence items to this investment pillar score."
                     )
@@ -6335,35 +6382,51 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
 
             if is_validation_configuration_locked(thesis_id):
                 st.caption("Validation configuration is locked for this thesis because a decision record exists.")
+
+            decision_form_signature = (
+                None if existing_decision is None else existing_decision.get("id"),
+                None if existing_decision is None else existing_decision.get("recommendation"),
+                None if existing_decision is None else existing_decision.get("review_date"),
+                None if existing_decision is None else existing_decision.get("horizon_map"),
+                None if existing_decision is None else existing_decision.get("action"),
+                None if existing_decision is None else existing_decision.get("decision_rationale"),
+                None if existing_decision is None else existing_decision.get("key_risks"),
+                None if existing_decision is None else existing_decision.get("falsification_summary"),
+                None if existing_decision is None else existing_decision.get("next_review_date"),
+            )
+            if st.session_state.get("decision_form_signature") != decision_form_signature:
+                st.session_state["decision_form_signature"] = decision_form_signature
+                st.session_state["decision_rec"] = existing_decision['recommendation'] if existing_decision is not None and pd.notna(existing_decision['recommendation']) else ""
+                st.session_state["decision_date"] = pd.to_datetime(existing_decision['review_date']).date() if existing_decision is not None and pd.notna(existing_decision['review_date']) else datetime.now().date()
+                st.session_state["decision_horizon"] = existing_decision['horizon_map'] if existing_decision is not None and pd.notna(existing_decision['horizon_map']) else ""
+                st.session_state["decision_action"] = existing_decision['action'] if existing_decision is not None and pd.notna(existing_decision['action']) else ""
+                st.session_state["decision_rationale"] = existing_decision['decision_rationale'] if existing_decision is not None and pd.notna(existing_decision['decision_rationale']) else ""
+                st.session_state["decision_risks"] = existing_decision['key_risks'] if existing_decision is not None and pd.notna(existing_decision['key_risks']) else ""
+                st.session_state["decision_false"] = existing_decision['falsification_summary'] if existing_decision is not None and pd.notna(existing_decision['falsification_summary']) else ""
+                st.session_state["decision_next_review"] = pd.to_datetime(existing_decision['next_review_date']).date() if existing_decision is not None and pd.notna(existing_decision['next_review_date']) else datetime.now().date()
             
             with st.form("decision_form"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     recommendation_options = ["", "Observe", "Ready with Conditions", "Ready", "High Conviction", "Avoid", "Hold", "Sell"]
-                    rec_default_idx = 0
-                    if existing_decision is not None and pd.notna(existing_decision['recommendation']):
-                        try:
-                            rec_default_idx = recommendation_options.index(existing_decision['recommendation'])
-                        except ValueError:
-                            rec_default_idx = 0
+                    current_recommendation = st.session_state.get("decision_rec", "")
+                    if current_recommendation not in recommendation_options:
+                        st.session_state["decision_rec"] = ""
                     recommendation = st.selectbox(
                         "Recommendation",
                         recommendation_options,
-                        index=rec_default_idx,
                         key="decision_rec"
                     )
                 
                 with col2:
                     review_date = st.date_input(
                         "Review Date",
-                        value=pd.to_datetime(existing_decision['review_date']).date() if existing_decision is not None and pd.notna(existing_decision['review_date']) else datetime.now().date(),
                         key="decision_date"
                     )
                 
                 horizon_map = st.text_area(
                     "Horizon Map",
-                    value=existing_decision['horizon_map'] if existing_decision is not None and pd.notna(existing_decision['horizon_map']) else "",
                     placeholder="e.g., 1-Year: Observe | 3-Year: Ready with Conditions | 10-Year: High Conviction",
                     height=80,
                     key="decision_horizon"
@@ -6371,7 +6434,6 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 
                 action = st.text_area(
                     "Action",
-                    value=existing_decision['action'] if existing_decision is not None and pd.notna(existing_decision['action']) else "",
                     placeholder="What action should be taken?",
                     height=80,
                     key="decision_action"
@@ -6379,7 +6441,6 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 
                 decision_rationale = st.text_area(
                     "Decision Rationale",
-                    value=existing_decision['decision_rationale'] if existing_decision is not None and pd.notna(existing_decision['decision_rationale']) else "",
                     placeholder="Explain the reasoning behind this decision",
                     height=80,
                     key="decision_rationale"
@@ -6387,7 +6448,6 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 
                 key_risks = st.text_area(
                     "Key Risks",
-                    value=existing_decision['key_risks'] if existing_decision is not None and pd.notna(existing_decision['key_risks']) else "",
                     placeholder="What are the key risks?",
                     height=80,
                     key="decision_risks"
@@ -6395,7 +6455,6 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 
                 falsification_summary = st.text_area(
                     "Falsification Summary",
-                    value=existing_decision['falsification_summary'] if existing_decision is not None and pd.notna(existing_decision['falsification_summary']) else "",
                     placeholder="Summary of falsification criteria",
                     height=80,
                     key="decision_false"
@@ -6403,7 +6462,6 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 
                 next_review_date = st.date_input(
                     "Next Review Date",
-                    value=pd.to_datetime(existing_decision['next_review_date']).date() if existing_decision is not None and pd.notna(existing_decision['next_review_date']) else datetime.now().date(),
                     key="decision_next_review"
                 )
                 
