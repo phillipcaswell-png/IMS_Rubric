@@ -29,3 +29,19 @@ Coverage Vector:
 - Expected review horizons:
 - Evidence confidence:
 - Portfolio gaps reduced:
+
+## PVP-001 Boundary
+
+PVP-001 validates framework recurrence.
+
+PVP-001 is not a portfolio management protocol.
+
+PVP-001 does not authorize position sizing, cash management, trade execution, or portfolio operations.
+
+Audit findings may serve as one evidence source for recurrence analysis, including Reasoning Recurrence Rate and Framework Analysis Finding eligibility, only under the frozen threshold:
+
+- 1 case = Candidate Observation
+- 2 cases = Candidate Pattern
+- 3 or more cases = Framework Analysis Finding
+
+Only findings with recurrence count of 3 or more are PVP-001 eligible.

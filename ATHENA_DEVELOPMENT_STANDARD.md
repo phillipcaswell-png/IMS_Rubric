@@ -163,6 +163,22 @@ The Independent Auditor:
 
 Development and audit are peer operating disciplines under Athena's constitutional governance. Audit reports inform stewardship rather than acting as work directives.
 
+### PVP-001 Boundary and Recurrence Use
+
+PVP-001 validates framework recurrence.
+
+PVP-001 is not portfolio management.
+
+PVP-001 does not authorize position sizing, cash management, buy/sell execution, or portfolio operations.
+
+Independent audit findings may be used as one evidence source for recurrence analysis under PVP-001, including Reasoning Recurrence Rate and Framework Analysis Finding determination, only under the frozen threshold:
+
+- 1 case = Candidate Observation
+- 2 cases = Candidate Pattern
+- 3 or more cases = Framework Analysis Finding
+
+Only recurrence count of 3 or more is PVP-001 eligible.
+
 ## MVP Context
 
 MVPs remain useful for large structural shifts, cross-layer capability introductions, and major product posture changes.

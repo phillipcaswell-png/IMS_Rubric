@@ -244,6 +244,31 @@ No implementation authorized.
 
 ---
 
+### Candidate AI-005 — Portfolio as Constitutional Object
+
+**Status**
+
+Candidate Observation.
+
+Observed during HRV-001 retrospective.
+
+No implementation authorized.
+
+Promotion requires:
+
+- PVP-001 execution
+- Generation V architectural scoping
+
+**Implementation Status**
+
+Observation only.
+
+No Generation V implementation authorized.
+
+No portfolio operations authorized.
+
+---
+
 ## Architectural Validations
 
 **Status:** Validated • Evidence Record

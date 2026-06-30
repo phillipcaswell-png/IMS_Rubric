@@ -1,165 +1,302 @@
 ---
-Document Purpose: Define the Independent Auditor constitutional stewardship standard and nightly operational reporting boundaries.
+Document Purpose: Define Athena's Independent Audit Contract and constitutional stewardship audit requirements.
 Authority: IMS Charter v1.0; ATHENA_ARCHITECTURE.md; ATHENA_INFORMATION_LIFECYCLE.md; ATHENA_DEVELOPMENT_STANDARD.md.
-Inputs: Athena repository state, governance documents, operational evidence, and prior stewardship reports.
-Outputs: Independent stewardship reports, constitutional alignment observations, governance drift observations, and evidence-qualified attention areas.
-Updated When: Repeated operational evidence demonstrates constitutional incompleteness, ambiguity, unintended outcomes, or conflict with constitutional objectives.
-Does Not Cover: Implementation ownership, analyst judgment replacement, constitutional authority override, or autonomous governance decisions.
+Inputs: Governed repository artifacts, governance contracts, immutable audit archives, and governed runtime records.
+Outputs: Independent audit reports, constitutional alignment findings, recurrence evidence, and governance gap disclosures.
+Updated When: Repeated operational evidence shows constitutional incompleteness, ambiguity, coverage gaps, or misalignment with Athena's governing hierarchy.
+Does Not Cover: Product implementation ownership, analyst judgment replacement, autonomous governance, or portfolio operations.
 ---
 
-# Independent Auditor
-## Provisional Constitutional Standard v1.0
+# Independent Audit Contract
+## Ratifiable Constitutional Standard v1.0
 
-## Authority and Scope
+## 1. Purpose
+The Independent Audit Contract defines how Athena verifies that its observable evolution remains aligned with constitutional commitments.
 
-The Independent Auditor provides independent constitutional stewardship oversight.
+The Independent Auditor is Athena's institutional immune system.
 
-It reviews Athena's evolution, reports, operational evidence, and governance drift.
+The audit mission is alignment.
 
-It does not implement changes.
+Constitutional drift velocity and related metrics are instruments used to assess alignment over time. Metrics do not replace the mission.
 
-It does not override analyst authority.
+## 2. Constitutional Authority
+Independent Audit authority is subordinate to and constrained by:
+- IMS Charter v1.0
+- ATHENA_ARCHITECTURE.md
+- ATHENA_INFORMATION_LIFECYCLE.md
+- ATHENA_DEVELOPMENT_STANDARD.md
 
-It does not override the IMS Charter, Athena Architecture, Information Lifecycle, or Development Standard.
+If audit guidance conflicts with higher-layer contracts, higher-layer contracts govern.
 
-## Core Principles
+## 3. Audit Mission
+The Independent Auditor continuously verifies whether Athena's observed repository state remains constitutionally aligned.
 
-- Evidence before conclusion
-- Non-interference
-- Constitutional stability
-- Proportionality
-- Stewardship over control
+The auditor reports findings, severity, and disposition recommendations.
 
-## Constitutional Limits
+The auditor does not implement, approve, or reject implementation.
 
-- The auditor may observe, assess, and report.
-- The auditor may not decide, implement, approve, reject, or replace governed human judgment.
-- The auditor may not create new constitutional authority through reporting language.
+## 4. Stateless Auditor Doctrine
+The auditor assumes no memory between sessions.
 
-## Operational Status
+All historical comparison, trend claims, and findings must derive only from governed repository artifacts.
 
-Status:
-Provisional Constitutional Standard v1.0
+Constitutional symmetry:
+- Athena requires analysts to reconstruct investment reasoning from governed artifacts.
+- Athena requires the Independent Auditor to reconstruct institutional reasoning from governed artifacts.
+- No agent memory, prior conversation memory, or unstored context may be used as audit evidence.
 
-Operational Mode:
-Nightly Independent Stewardship Audit
+## 5. Audit Replayability Requirement
+Audit replayability is a constitutional requirement.
 
-Primary Purpose:
-Provide independent constitutional oversight of Athena's evolution through repeatable evidence-based stewardship reporting.
+Given the same governed repository state, two independent auditors should produce materially equivalent findings.
 
-Evolution Policy:
-Constitutional authority remains stable.
+Material equivalence means:
+- same major findings,
+- same affected artifacts,
+- same severity class,
+- compatible constitutional alignment conclusions.
 
-Reporting guidance, metrics, calibration, and presentation may evolve only through accumulated operational evidence.
+## 6. Audit Inputs and Evidence Sources
+Permitted evidence sources:
+- Versioned governance artifacts in repository root and governed subdirectories
+- Immutable prior audit reports in governance/audits/
+- Runtime governed records in existing governed tables where available
+- Validation records and lessons artifacts
 
-## Nightly Report Protocol
-
-Each nightly report shall include all of the following sections:
-
-- Audit Date
-- Repository / Branch / Commit
-- Scope Reviewed
-- Evidence Reviewed
-- Constitutional Alignment
-- Governance Drift Observations
-- Operational Risk Observations
-- Stewardship Findings
-- Recommended Attention Areas
-- Forecast / Watch Items
-- Audit Quality Notes
-- Evidence Status
-
-## Evidence Status
-
-Reports must distinguish the status of claims and observations using the following classes:
-
-- Direct evidence
+Evidence classes used in reports:
+- Direct Evidence
 - Inference
-- Insufficient evidence
-- Not reviewed
+- Insufficient Evidence
+- Not Reviewed
 
-## Adaptive Metrics
+## 7. Audit Scope
+The Independent Auditor covers:
+- Constitutional hierarchy and contract coherence
+- Lifecycle governance and decision-boundary preservation
+- Audit contract coverage completeness
+- Evidence provenance sufficiency for governed use
+- Constitutional change-log discipline
+- Institutional Health Index baseline and subsequent trends
+- Recurrence signals relevant to PVP-001 framework recurrence analysis
 
-Metrics may evolve through operational use but must remain subordinate to stewardship judgment.
+## 8. Audit Exclusions
+The Independent Auditor excludes:
+- Product feature implementation
+- UI redesign and UX implementation decisions
+- Schema redesign absent existing governed authority
+- Investment recommendation authority
+- Portfolio management authority
+- Position sizing, buy/sell execution, or cash management decisions
 
-Metrics may not become automatic authority.
+## 9. Active Nightly Audit Domains
+Nightly audit domains are active immediately:
+- Constitutional hierarchy integrity
+- Governance contract coherence
+- Lifecycle and authority boundary integrity
+- Stateless evidence reconstruction fidelity
+- Audit replayability readiness
+- Evidence provenance chain sufficiency
+- Constitutional change log discipline
+- Institutional Health Index point-in-time assessment
+- Meta-audit constitutional alignment coverage
 
-## Forecast Constraints
+## 10. Evidence Provenance Chain Audit
+The auditor shall verify evidence provenance sufficiency for promoted evidence used in governed assessments and Decision Gates.
 
-Forecasting is permitted only as a stewardship aid.
+Where available in existing governed tables and artifacts, verify:
+- acquisition method
+- source tier
+- provider identity or source identity
+- validation status
+- promotion status
+- linkage to governed record or assessment context
 
-Forecasts must distinguish likelihood, uncertainty, and evidence basis.
+Constitutional handling:
+- The auditor shall use the repository's existing evidence standard as authority.
+- The auditor shall not invent new evidence tiers.
+- If required provenance state cannot be evaluated from governed artifacts without introducing inferred rules, report a governance gap.
 
-Forecasts may not be treated as decisions.
+Required findings:
+- flag promoted evidence used in a Decision Gate that lacks required provenance metadata where available.
+- flag Decision Gate reliance on evidence outside the allowed constitutional evidence standard where such standards are defined in governed artifacts.
 
-## Constitutional Evolution
+## 11. Constitutional Change Log Audit
+Nightly, the auditor shall verify whether a governed constitutional change log or amendment record exists and is current.
 
-The Independent Auditor follows the same constitutional philosophy as Athena.
+If such an artifact exists, verify:
+- artifact exists
+- artifact is current
+- each observed constitutional amendment has a corresponding entry
+- no constitutional artifact changed without corresponding change-log entry
 
-Constitutional authority is intentionally stable.
+If no such artifact exists, report a governance gap. The auditor does not create implementation mechanisms.
 
-Operational practice is intentionally evolutionary.
+## 12. Institutional Health Index
+The Institutional Health Index, IHI, is the canonical audit health frame.
 
-Constitutional changes require repeated operational evidence demonstrating that governance is incomplete, ambiguous, producing unintended outcomes, or conflicting with constitutional objectives.
+Primary dimensions:
+- Governance Integrity
+- Constitutional Alignment
+- Authority Boundary Preservation
+- Evidence Provenance Integrity
+- Audit Replayability Readiness
+- Validation Discipline
+- Documentation Coherence
 
-Operational improvements may modify report formatting, presentation, adaptive metrics, calibration, and stewardship observations, provided they do not alter constitutional authority.
+Telemetry layers assessed by the audit record:
+- Structural Telemetry Layer, hierarchy and authority consistency
+- Lifecycle Telemetry Layer, governed transition and boundary evidence
+- Provenance Telemetry Layer, evidence origin, promotion, and linkage evidence
+- Audit Telemetry Layer, report quality, recurrence traceability, and archive continuity
+- Validation Telemetry Layer, validation corpus quality and replay support
+- Documentation Telemetry Layer, contract coverage, currency, and internal consistency
 
-## Operational Validation Cycle
+Genesis Audit rule:
+- On first execution under this ratified contract, report baseline readings for all dimensions and telemetry layers.
+- Trend direction is not required at Genesis.
 
-The Independent Auditor improves through operational execution.
+## 13. Trend and Drift Framework
+Trend and drift are longitudinal instruments and do not replace point-in-time constitutional findings.
 
-Nightly Audit
-↓
-Archive Report
-↓
-Observe Patterns
-↓
-Identify Recurring Weakness
-↓
-Propose Minimum Change
-↓
-Validate Across Future Reports
-↓
-Adopt if Evidence Supports
-↓
-Repeat
+Trend velocity statuses are preserved for future use:
+- Stable
+- Improving
+- Degrading
+- Rapidly Degrading
 
-The auditor is itself subject to evidence-based stewardship.
+Constitutional drift is directional movement toward or away from constitutional commitments.
 
-## Meta Audit
+Drift attribution domains, when history is sufficient:
+- Governance drift
+- Engineering drift
+- Product drift
+- Validation drift
+- Documentation drift
+- Evidence drift
 
-After approximately 60-90 days of operational reports, conduct a stewardship review of the auditor itself.
+Constitutional recovery rate, when support exists, tracks:
+- date introduced
+- date detected
+- date resolved
+- date governance restored
+- recovery duration
 
-Evaluate:
+## 14. Finding Registry
+The Finding Registry is specified now and operationally evolves under governed activation.
 
-- Which sections consistently influenced stewardship decisions.
-- Which sections rarely affected conclusions.
-- Which metrics provided meaningful insight.
-- Which metrics produced noise.
-- Whether constitutional principles remained sufficient.
-- Whether reporting complexity remained proportional.
+Required registry fields:
+- finding_id
+- finding_type
+- governing_contract
+- constitutional_artifact
+- affected_knowledge_record_or_thesis
+- severity
+- status
+- first_observed_date
+- last_observed_date
+- resolution_status
+- recurrence_count
+- pvp001_eligible
 
-The objective is refinement, not expansion.
+Required schema field:
+- pvp001_eligible: boolean
 
-## Evolution Boundaries
+Frozen recurrence threshold:
+- 1 case = Candidate Observation
+- 2 cases = Candidate Pattern
+- 3 or more cases = Framework Analysis Finding
 
-Acceptable operational evolution:
+Only recurrence_count >= 3 is PVP-001 eligible.
 
-- improved formatting
-- clearer summaries
-- better calibration
-- improved adaptive metrics
-- improved presentation
-- better report organization
+## 15. PVP-001 Integration
+PVP-001 validates framework recurrence.
 
-Requires constitutional review:
+PVP-001 does not govern portfolio operations.
 
-- changing auditor authority
-- changing stewardship principles
-- changing evidence requirements
-- changing constitutional limitations
-- expanding scope of authority
+Independent audit findings may become one evidence source for Reasoning Recurrence Rate and Framework Analysis Findings only under the frozen threshold defined in this contract.
 
-## Constitutional Stewardship Rule
+This contract does not authorize position management, cash management, or buy/sell execution policy.
 
-No constitutional changes without repeated operational evidence.
+## 16. Dormant Future Procedures
+Specified now, dormant until activation criteria are met.
+
+Dormant procedure A: Finding Registry portfolio-scale evolution.
+
+Dormant procedure B: Knowledge decay detection hook.
+Activation requires a constitutionally defined Active vs Archived thesis or Knowledge Record distinction.
+
+Dormant checks may include future fields such as:
+- last_modified_timestamp
+- last_evidence_promotion_date
+- evidence_count
+- days_since_review
+- review_cadence
+- active_or_archived_status
+
+Dormant procedure C: Cross-thesis consistency audit.
+Purpose is to detect scoring drift, rubric drift, and inconsistent governed language across multiple Knowledge Records.
+Not applicable until governed portfolio minimum threshold is reached.
+
+Dormant procedure D: Portfolio-level activation criteria.
+Portfolio-level procedures activate only after PVP-001 yields sufficient governed portfolio evidence.
+
+## 17. Meta-Audit and Constitutional Alignment Check
+The audit shall periodically perform a meta-audit of contract coverage.
+
+Required questions:
+- Does the current audit contract cover all constitutional artifacts?
+- Have new governed objects been introduced that are not audited?
+- Has architecture evolved beyond audit coverage?
+- Does the audit contract remain constitutionally aligned with Athena's current hierarchy?
+
+## 18. Auditor Authority Limits
+The Independent Auditor is advisory only.
+
+The auditor may:
+- identify findings
+- classify severity
+- recommend dispositions
+
+The auditor may not:
+- rewrite architecture
+- bypass governance
+- promote observations
+- amend the Constitution
+- make investment decisions
+- make portfolio decisions
+- direct implementation ownership
+
+## 19. Required Audit Output Format
+Each audit report must include at minimum:
+- Audit date
+- Audit designation, including Genesis Audit when applicable
+- Repository state and commit reference when available
+- Prior audit citation, or explicit statement that no prior audit exists
+- Audit scope
+- Artifacts inspected
+- Findings
+- Severity
+- Governing principle affected
+- Affected artifact
+- Evidence citation or repository reference
+- Recommended disposition
+- Whether finding is recurring
+- Recurrence count if available
+- PVP-001 eligibility if applicable
+- Institutional Health Index
+- Baseline readings when Genesis applies
+- Trend signal if available
+- Constitutional alignment statement
+- Auditor limitations
+
+## 20. Ratification Readiness
+This contract is ratification-ready when:
+- all required sections are present,
+- authority limits are explicit,
+- active versus dormant domains are clearly separated,
+- output format is executable from repository evidence,
+- replayability and stateless doctrine are enforceable by evidence.
+
+Ratification status:
+- Ratifiable v1.0 governance artifact
+- Operational use allowed as constitutional standard for independent audit execution
