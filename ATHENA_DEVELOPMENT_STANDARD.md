@@ -17,6 +17,59 @@ Define the required development and release discipline for Athena capabilities w
 
 Athena evolves by removing validated analyst interruptions discovered through real operational use. Evidence - not speculation - drives product evolution.
 
+## Development Principles
+
+### Experience Before Architecture
+
+When Historical Replay Validation demonstrates that Replay Sufficiency deficiencies arise from presentation rather than governance:
+
+Experience-layer improvements shall take precedence over architectural modification.
+
+Architectural evolution shall occur only when replay evidence demonstrates that presentation improvements cannot resolve the observed deficiency.
+
+This principle preserves constitutional stability while allowing analyst experience to improve through evidence-driven iteration.
+
+### Constitutional Rationale
+
+This principle was established from evidence produced during Historical Replay Validation 001.
+
+HRV-001 demonstrated:
+
+- Constitutional governance remained sound.
+- Replay completed successfully.
+- Audit verification succeeded.
+- Remaining deficiencies were localized to presentation of governed reasoning rather than the governing model itself.
+
+Accordingly:
+
+Presentation deficiencies should first be resolved at the experience layer before considering architectural evolution.
+
+### Historical Replay Priority
+
+When implementing replay-driven improvements:
+
+1. Correct validated Product Bugs.
+2. Improve Replay Sufficiency through presentation-layer enhancements.
+3. Preserve constitutional architecture.
+4. Defer architectural evolution until repeated Historical Replay Validation demonstrates presentation improvements are insufficient.
+
+### Observation-Only Architectural Candidates
+
+Candidate Architectural Insights and Knowledge Gaps remain observational until promoted through repeated Historical Replay Validation.
+
+Specifically:
+
+- Candidate AI-004
+- KG-0003
+
+shall not drive implementation.
+
+They may guide observation.
+
+They may not authorize architectural change.
+
+Promotion requires additional replay evidence.
+
 ## Structural Dependency
 
 This document depends on structural contracts defined by:
