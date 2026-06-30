@@ -362,3 +362,115 @@ from API responses. After both fixes, extraction succeeded against evidence #9
 model resilience, industry disruption, operational risk, risk disclosures, and
 capital allocation strategy. Suggestion content remained ephemeral — no
 suggestion text was written to any governed table.
+
+## Validation Case 003 - HRV-001 Audit Immutability Verification (Microsoft Replay)
+
+Execution date: 2026-06-29
+
+Scope:
+
+- Verify constitutional persistence, ordering, immutability, traceability, and audit completeness for thesis_id=14 (Microsoft / MSFT) after governed replay completion.
+- Verify this run did not perform code, schema, or UI implementation changes.
+
+### Verification 1 - Business Pillar Persistence Completeness (B1-B7)
+
+Result: Pass
+
+Evidence:
+
+- `pillar_scores` contains exactly one persisted row for each business pillar B1 through B7 for thesis_id=14.
+- Each B-row has non-empty governed fields: judgment, confidence_basis, falsification_trigger, reviewer, review_date.
+- Corresponding audit events exist for each save:
+	- Business assessment saved: B1 Business Quality
+	- Business assessment saved: B2 Competitive Advantage
+	- Business assessment saved: B3 Revenue Quality
+	- Business assessment saved: B4 Financial Resilience
+	- Business assessment saved: B5 Execution Capability
+	- Business assessment saved: B6 Industry Position
+	- Business assessment saved: B7 Systems Importance
+
+### Verification 2 - Investment Pillar Persistence Completeness (I1-I4)
+
+Result: Pass
+
+Evidence:
+
+- `pillar_scores` contains exactly one persisted row for each investment pillar I1 through I4 for thesis_id=14.
+- Each I-row has non-empty governed fields: judgment, confidence_basis, falsification_trigger, reviewer, review_date.
+- Corresponding audit events exist for each save:
+	- Investment assessment saved: I1 Valuation
+	- Investment assessment saved: I2 Market Structure
+	- Investment assessment saved: I3 Market Sentiment
+	- Investment assessment saved: I4 Portfolio Contribution
+
+### Verification 3 - Decision Persistence and Immutability
+
+Result: Pass
+
+Evidence:
+
+- `decision_logs` contains one decision row for thesis_id=14:
+	- recommendation: Ready with Conditions
+	- horizon_map: persisted
+	- action: persisted
+	- decision_rationale: non-empty
+	- key_risks: non-empty
+	- falsification_summary: non-empty
+	- review_date and next_review_date persisted
+- Audit trail contains decision event:
+	- Decision recorded or updated. validated_at=2026-06-29T18:58:42.627907
+- Event ordering shows no out-of-order records for thesis_id=14.
+
+### Verification 4 - Observation, Promotion, Provenance, and Orphan Integrity
+
+Result: Pass
+
+Evidence:
+
+- Evidence provenance chain present:
+	- `evidence_staging` rows for thesis_id=14 include promotion link to `evidence_items` (no broken promotion references).
+	- `evidence_observations` rows reference existing `evidence_items`.
+- Orphan checks for thesis_id=14 passed:
+	- no orphan thesis events
+	- no orphan audit events
+	- no missing audit entity references for `entity_type in ('thesis','evidence_observation')`
+
+### Verification 5 - Audit Chain Chronological Integrity and Completeness
+
+Result: Pass
+
+Evidence:
+
+- Audit tab reported Total Events: 48.
+- Database counts for thesis_id=14:
+	- `thesis_events`: 48
+	- `audit_events`: 50 (includes two explicit `evidence_observation` entity audit rows)
+- Required sequence components are present and ordered by timestamp:
+	- Evaluation Created
+	- Evidence staging/review/promotion
+	- Business assessments B1-B7
+	- Investment assessments I1-I4
+	- Decision Recorded
+- Out-of-order event check returned 0.
+
+### Verification 6 - Historical Integrity and Governance Initiation Constraints
+
+Result: Pass
+
+Evidence:
+
+- Replayed governed evidence items for thesis_id=14 use publication_date values at or before the historical boundary:
+	- 2021-10-12
+	- 2021-10-26
+	- 2021-10-26
+- Post-cutoff contamination check for persisted evidence_items returned 0 rows after 2022-01-15.
+- Governance actions were analyst-triggered during replay execution; persisted business/investment assessment audit events are attributed to reviewer `GitHub Copilot` (analyst actor in this run), and decision persistence occurred at the governed save point.
+
+### Constitutional Completion Statement
+
+HRV-001 is Constitutionally Complete.
+
+### Repository Change Scope Confirmation
+
+- This verification added documentation evidence only.
+- No application code, schema, UI, or runtime behavior changes were implemented as part of HRV-001 verification.
