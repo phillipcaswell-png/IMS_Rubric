@@ -1304,6 +1304,13 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
     )
     existing_record = existing_df.iloc[0] if not existing_df.empty else None
     pillar_score_id = int(existing_record["id"]) if existing_record is not None and pd.notna(existing_record["id"]) else None
+    default_review_date, validation_mode_enabled, evidence_cutoff_date = _resolve_validation_review_date(
+        thesis,
+        existing_record["review_date"] if existing_record is not None else None,
+    )
+    validation_review_date_blocked = validation_mode_enabled and evidence_cutoff_date is None
+    if validation_review_date_blocked:
+        st.error("Validation mode requires evidence_cutoff_date before pillar scores can be saved.")
 
     available_evidence_ids, available_evidence_labels = get_available_evidence_items(thesis_id)
     linked_evidence_defaults = get_linked_evidence_ids(pillar_score_id) if pillar_score_id is not None else []
@@ -1844,7 +1851,7 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
         if default_drl not in drl_options:
             default_drl = ""
         st.session_state.setdefault(drl_key, default_drl)
-        st.session_state.setdefault(review_date_key, pd.to_datetime(existing_record["review_date"]).date() if existing_record is not None and pd.notna(existing_record["review_date"]) else default_validation_review_date)
+        st.session_state.setdefault(review_date_key, default_review_date)
 
         col1, col2 = st.columns(2)
         with col1:
@@ -1887,13 +1894,15 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
             drl = None
 
         if st.button("Save Governed Assessment", use_container_width=True, key=f"assessment_workspace_save_{thesis_id}_{pillar_id}"):
+            if validation_review_date_blocked:
+                st.error("Validation mode requires evidence_cutoff_date before pillar scores can be saved.")
             if pillar_id.startswith("I") and not confidence_basis.strip():
                 st.error("Confidence Basis is required.")
             elif pillar_id.startswith("I") and not judgment.strip():
                 st.error("Judgment is required.")
             elif pillar_id.startswith("I") and not falsification_trigger.strip():
                 st.error("Falsification Trigger is required.")
-            else:
+            elif not validation_review_date_blocked:
                 created_by = reviewer.strip() if reviewer and reviewer.strip() else (thesis["reviewer"] if thesis["reviewer"] else "System")
                 pillar_result = save_pillar_score(
                     thesis_id=thesis_id,
@@ -2283,6 +2292,22 @@ def _display_value(value):
     if isinstance(value, str) and not value.strip():
         return "—"
     return value
+
+
+def _resolve_validation_review_date(thesis, existing_review_date=None):
+    validation_mode_enabled = int(thesis["validation_mode"]) == 1 if pd.notna(thesis["validation_mode"]) else False
+    evidence_cutoff_date = None
+    if pd.notna(thesis["evidence_cutoff_date"]) and str(thesis["evidence_cutoff_date"]).strip():
+        evidence_cutoff_date = pd.to_datetime(thesis["evidence_cutoff_date"]).date()
+
+    if existing_review_date is not None and pd.notna(existing_review_date):
+        resolved_review_date = pd.to_datetime(existing_review_date).date()
+    elif validation_mode_enabled and evidence_cutoff_date is not None:
+        resolved_review_date = evidence_cutoff_date
+    else:
+        resolved_review_date = datetime.now().date()
+
+    return resolved_review_date, validation_mode_enabled, evidence_cutoff_date
 
 
 def render_constitutional_journey(vm):
@@ -4389,16 +4414,8 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
     
     if not thesis_df.empty:
         thesis = thesis_df.iloc[0]
-        thesis_validation_mode_enabled = int(thesis['validation_mode']) == 1 if pd.notna(thesis['validation_mode']) else False
-        thesis_cutoff_date = None
-        if pd.notna(thesis['evidence_cutoff_date']) and str(thesis['evidence_cutoff_date']).strip():
-            thesis_cutoff_date = pd.to_datetime(thesis['evidence_cutoff_date']).date()
-
-        default_validation_review_date = (
-            thesis_cutoff_date
-            if thesis_validation_mode_enabled and thesis_cutoff_date is not None
-            else datetime.now().date()
-        )
+        default_validation_review_date, thesis_validation_mode_enabled, thesis_cutoff_date = _resolve_validation_review_date(thesis)
+        validation_review_date_blocked = thesis_validation_mode_enabled and thesis_cutoff_date is None
         
         render_page_header(
             "Active Evaluation",
@@ -5654,38 +5671,41 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 submitted = st.form_submit_button("Save Business Quality Score", use_container_width=True)
 
                 if submitted:
-                    created_by = reviewer.strip() if reviewer and reviewer.strip() else (thesis['reviewer'] if thesis['reviewer'] else "System")
-                    pillar_result = save_pillar_score(
-                        thesis_id=thesis_id,
-                        pillar_id=pillar_id,
-                        pillar_name=pillar_name,
-                        score=score,
-                        rag_status=rag_status,
-                        evidence_grade=evidence_grade,
-                        judgment=judgment,
-                        confidence_basis=confidence_basis,
-                        falsification_trigger=falsification_trigger,
-                        reviewer=reviewer,
-                        review_date=review_date,
-                        created_by=created_by,
-                    )
-                    pillar_score_id = pillar_result["pillar_score_id"]
-
-                    if pillar_result["is_update"]:
-                        st.success(f"✓ Business assessment updated for {pillar_id} {pillar_name}")
+                    if validation_review_date_blocked:
+                        st.error("Validation mode requires evidence_cutoff_date before pillar scores can be saved.")
                     else:
-                        st.success(f"✓ Business assessment saved for {pillar_id} {pillar_name}")
-
-                    if pillar_score_id is None:
-                        st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
-                    else:
-                        sync_pillar_evidence_links(
-                            pillar_score_id=pillar_score_id,
-                            selected_evidence_ids=selected_evidence_links,
-                            created_by=created_by
+                        created_by = reviewer.strip() if reviewer and reviewer.strip() else (thesis['reviewer'] if thesis['reviewer'] else "System")
+                        pillar_result = save_pillar_score(
+                            thesis_id=thesis_id,
+                            pillar_id=pillar_id,
+                            pillar_name=pillar_name,
+                            score=score,
+                            rag_status=rag_status,
+                            evidence_grade=evidence_grade,
+                            judgment=judgment,
+                            confidence_basis=confidence_basis,
+                            falsification_trigger=falsification_trigger,
+                            reviewer=reviewer,
+                            review_date=review_date,
+                            created_by=created_by,
                         )
+                        pillar_score_id = pillar_result["pillar_score_id"]
 
-                    st.rerun()
+                        if pillar_result["is_update"]:
+                            st.success(f"✓ Business assessment updated for {pillar_id} {pillar_name}")
+                        else:
+                            st.success(f"✓ Business assessment saved for {pillar_id} {pillar_name}")
+
+                        if pillar_score_id is None:
+                            st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
+                        else:
+                            sync_pillar_evidence_links(
+                                pillar_score_id=pillar_score_id,
+                                selected_evidence_ids=selected_evidence_links,
+                                created_by=created_by
+                            )
+
+                        st.rerun()
             
             st.divider()
             
@@ -5933,6 +5953,8 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
 
                 if submitted:
                     # Validation
+                    if validation_review_date_blocked:
+                        st.error("Validation mode requires evidence_cutoff_date before pillar scores can be saved.")
                     if not selected_pillar or selected_pillar == "":
                         st.error("Pillar is required.")
                     elif not confidence_basis.strip():
@@ -5941,7 +5963,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                         st.error("Judgment is required.")
                     elif not falsification_trigger.strip():
                         st.error("Falsification Trigger is required.")
-                    else:
+                    elif not validation_review_date_blocked:
                         # Split pillar into ID and name
                         pillar_parts = selected_pillar.split(" ", 1)
                         pillar_id = pillar_parts[0]
