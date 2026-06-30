@@ -474,3 +474,13 @@ HRV-001 is Constitutionally Complete.
 
 - This verification added documentation evidence only.
 - No application code, schema, UI, or runtime behavior changes were implemented as part of HRV-001 verification.
+
+### Post-Validation Annotation - Genesis Audit Follow-up
+
+Genesis Audit 001 identified an assessment evidence traceability gap affecting replayability. This finding expands institutional governance coverage beyond the original HRV-001 validation scope and does not invalidate HRV-001's conclusion that the governed workflow executed successfully.
+
+Governance follow-up:
+
+Governed decision-support replayability should include explicit linkage from assessed pillars to promoted evidence references.
+
+HRV-001 remains closed.

@@ -74,7 +74,8 @@ The Independent Auditor covers:
 - Constitutional hierarchy and contract coherence
 - Lifecycle governance and decision-boundary preservation
 - Audit contract coverage completeness
-- Evidence provenance sufficiency for governed use
+- Evidence provenance integrity for governed use
+- Assessment replayability traceability for governed reasoning
 - Constitutional change-log discipline
 - Institutional Health Index baseline and subsequent trends
 - Recurrence signals relevant to PVP-001 framework recurrence analysis
@@ -95,13 +96,14 @@ Nightly audit domains are active immediately:
 - Lifecycle and authority boundary integrity
 - Stateless evidence reconstruction fidelity
 - Audit replayability readiness
-- Evidence provenance chain sufficiency
+- Evidence provenance integrity
+- Assessment replayability traceability
 - Constitutional change log discipline
 - Institutional Health Index point-in-time assessment
 - Meta-audit constitutional alignment coverage
 
-## 10. Evidence Provenance Chain Audit
-The auditor shall verify evidence provenance sufficiency for promoted evidence used in governed assessments and Decision Gates.
+## 10. Evidence Provenance Integrity
+The auditor shall verify that evidence entered Athena constitutionally and retains provenance integrity for governed use.
 
 Where available in existing governed tables and artifacts, verify:
 - acquisition method
@@ -120,7 +122,27 @@ Required findings:
 - flag promoted evidence used in a Decision Gate that lacks required provenance metadata where available.
 - flag Decision Gate reliance on evidence outside the allowed constitutional evidence standard where such standards are defined in governed artifacts.
 
-## 11. Constitutional Change Log Audit
+## 11. Assessment Replayability Traceability
+The auditor shall verify that Athena can replay assessment reasoning without analyst inference.
+
+Required replayability chain:
+
+Decision
+↓
+Business Assessment Pillar
+↓
+Governed Observation
+↓
+Promoted Evidence
+↓
+Original Source
+
+Required findings:
+- flag incomplete or non-replayable linkage at any step in the required chain.
+- distinguish observed replayability symptoms from unverified implementation-cause assumptions.
+- treat engineering verification questions as future verification scope unless directly evidenced by governed artifacts.
+
+## 12. Constitutional Change Log Audit
 Nightly, the auditor shall verify whether a governed constitutional change log or amendment record exists and is current.
 
 If such an artifact exists, verify:
@@ -131,7 +153,7 @@ If such an artifact exists, verify:
 
 If no such artifact exists, report a governance gap. The auditor does not create implementation mechanisms.
 
-## 12. Institutional Health Index
+## 13. Institutional Health Index
 The Institutional Health Index, IHI, is the canonical audit health frame.
 
 Primary dimensions:
@@ -155,7 +177,7 @@ Genesis Audit rule:
 - On first execution under this ratified contract, report baseline readings for all dimensions and telemetry layers.
 - Trend direction is not required at Genesis.
 
-## 13. Trend and Drift Framework
+## 14. Trend and Drift Framework
 Trend and drift are longitudinal instruments and do not replace point-in-time constitutional findings.
 
 Trend velocity statuses are preserved for future use:
@@ -181,7 +203,7 @@ Constitutional recovery rate, when support exists, tracks:
 - date governance restored
 - recovery duration
 
-## 14. Finding Registry
+## 15. Finding Registry
 The Finding Registry is specified now and operationally evolves under governed activation.
 
 Required registry fields:
@@ -208,7 +230,7 @@ Frozen recurrence threshold:
 
 Only recurrence_count >= 3 is PVP-001 eligible.
 
-## 15. PVP-001 Integration
+## 16. PVP-001 Integration
 PVP-001 validates framework recurrence.
 
 PVP-001 does not govern portfolio operations.
@@ -217,7 +239,7 @@ Independent audit findings may become one evidence source for Reasoning Recurren
 
 This contract does not authorize position management, cash management, or buy/sell execution policy.
 
-## 16. Dormant Future Procedures
+## 17. Dormant Future Procedures
 Specified now, dormant until activation criteria are met.
 
 Dormant procedure A: Finding Registry portfolio-scale evolution.
@@ -240,7 +262,7 @@ Not applicable until governed portfolio minimum threshold is reached.
 Dormant procedure D: Portfolio-level activation criteria.
 Portfolio-level procedures activate only after PVP-001 yields sufficient governed portfolio evidence.
 
-## 17. Meta-Audit and Constitutional Alignment Check
+## 18. Meta-Audit and Constitutional Alignment Check
 The audit shall periodically perform a meta-audit of contract coverage.
 
 Required questions:
@@ -249,7 +271,7 @@ Required questions:
 - Has architecture evolved beyond audit coverage?
 - Does the audit contract remain constitutionally aligned with Athena's current hierarchy?
 
-## 18. Auditor Authority Limits
+## 19. Auditor Authority Limits
 The Independent Auditor is advisory only.
 
 The auditor may:
@@ -266,7 +288,7 @@ The auditor may not:
 - make portfolio decisions
 - direct implementation ownership
 
-## 19. Required Audit Output Format
+## 20. Required Audit Output Format
 Each audit report must include at minimum:
 - Audit date
 - Audit designation, including Genesis Audit when applicable
@@ -280,6 +302,8 @@ Each audit report must include at minimum:
 - Affected artifact
 - Evidence citation or repository reference
 - Recommended disposition
+- Evidence Provenance Integrity assessment
+- Assessment Replayability Traceability assessment
 - Whether finding is recurring
 - Recurrence count if available
 - PVP-001 eligibility if applicable
@@ -289,7 +313,7 @@ Each audit report must include at minimum:
 - Constitutional alignment statement
 - Auditor limitations
 
-## 20. Ratification Readiness
+## 21. Ratification Readiness
 This contract is ratification-ready when:
 - all required sections are present,
 - authority limits are explicit,

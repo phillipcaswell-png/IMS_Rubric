@@ -269,6 +269,38 @@ No portfolio operations authorized.
 
 ---
 
+### Candidate AI-006 — Assessment Replayability Traceability
+
+**Status**
+
+Candidate Observation
+
+**Observed During**
+
+Genesis Audit 001
+
+**Observation**
+
+Evidence promotion and governed observations exist.
+
+Explicit replayable linkage between Business Assessment pillars and promoted evidence is incomplete.
+
+**Constitutional Meaning**
+
+The audit identified a replayability traceability gap, not proof of missing evidence and not proof of product failure.
+
+**Potential Relationship**
+
+Generation IV Priority 2 - Observation Traceability
+
+**Boundary**
+
+Engineering verification required before implementation planning.
+
+No implementation authorized.
+
+---
+
 ## Architectural Validations
 
 **Status:** Validated • Evidence Record

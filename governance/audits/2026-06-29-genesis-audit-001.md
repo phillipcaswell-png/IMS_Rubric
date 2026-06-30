@@ -51,16 +51,18 @@
 - Recurrence Count: 1
 - PVP-001 Eligible: false
 
-### F-002 — Decision-Gate Evidence Provenance Chain Incomplete at Assessment Linkage Layer
+### F-002 — Decision-Support Replayability Incomplete at the Assessment Evidence Traceability Layer
 
 - Severity: High
 - Governing Principle Affected: Evidence Before Implementation; Human Judgment Always Governs
-- Affected Artifact: Governed Decision support chain for thesis_id=14
+- Affected Artifact: Governed Decision support replayability traceability for thesis_id=14
 - Evidence Citation:
   - decision_logs contains governed decisions for thesis_id=14.
   - pillar_evidence_links has 0 linkage rows for thesis_id=14.
   - pillar_scores evidence_items and primary_sources fields are blank for thesis_id=14.
-- Recommended Disposition: Define and enforce governed linkage requirements between pillar scores and promoted evidence for decision-support replayability.
+  - evidence_observations and promoted evidence exist, but no explicit replayable linkage is currently recorded between Business Assessment pillars and the promoted evidence supporting those assessments.
+- Recommended Disposition: Track as a replayability traceability symptom and execute engineering verification as future verification scope before implementation planning.
+- Scope Note: The engineering verification questions listed in this finding are future verification scope only and are not answered in this documentation-only audit task.
 - Recurring: Unknown under current contract (Genesis baseline)
 - Recurrence Count: 1
 - PVP-001 Eligible: false
