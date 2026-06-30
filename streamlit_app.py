@@ -205,6 +205,7 @@ ATHENA_SIDEBAR_FOOTER_TEXT = "Constitutional • Auditable • Reproducible"
 ATHENA_GOVERNED_FOOTER_TEXT = (
     "Governed by Athena Charter v1.0 • Evidence-bounded • Reproducible • Auditable"
 )
+GOVERNED_SAVE_CONFIRMATION_KEY = "_governed_save_confirmation"
 
 # Page configuration
 st.set_page_config(
@@ -601,6 +602,28 @@ def render_workspace_header(analyst_name=None, primary_text="Continue where you 
     """Render Workspace header copy in approved order."""
     eyebrow = f"Analyst: {analyst_name}" if analyst_name else None
     render_page_header("Active Evaluation", primary_text, eyebrow=eyebrow)
+
+
+def queue_governed_save_confirmation(surface_label, detail_label=None):
+    """Queue a post-rerun confirmation so save success remains visible."""
+    st.session_state[GOVERNED_SAVE_CONFIRMATION_KEY] = {
+        "surface_label": str(surface_label).strip(),
+        "detail_label": str(detail_label).strip() if detail_label else "",
+    }
+
+
+def render_governed_save_confirmation():
+    """Render one-time governed save confirmation after rerender."""
+    payload = st.session_state.pop(GOVERNED_SAVE_CONFIRMATION_KEY, None)
+    if not isinstance(payload, dict):
+        return
+
+    surface_label = str(payload.get("surface_label", "governed record")).strip() or "governed record"
+    detail_label = str(payload.get("detail_label", "")).strip()
+    message = f"Governed write succeeded and has been persisted for {surface_label}. You may safely continue."
+    if detail_label:
+        message = f"{message} ({detail_label})"
+    st.success(message)
 
 
 def render_kpi_tile(label, value):
@@ -1926,6 +1949,12 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
                     st.success(f"✓ Assessment updated for {pillar_id} {pillar_name}")
                 else:
                     st.success(f"✓ Assessment saved for {pillar_id} {pillar_name}")
+
+                st.toast("Governed assessment persisted. You may safely continue.")
+                queue_governed_save_confirmation(
+                    "Assessment",
+                    detail_label=f"{pillar_id} {pillar_name}",
+                )
 
                 if resolved_pillar_score_id is None:
                     st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
@@ -4422,6 +4451,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
             "What needs judgment now?",
             eyebrow=f"{thesis['company_name']}" if pd.notna(thesis['company_name']) and str(thesis['company_name']).strip() else "Workspace",
         )
+        render_governed_save_confirmation()
 
         workspace_clarity = _build_workspace_clarity_context(thesis_id, thesis)
 
@@ -5344,8 +5374,14 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                             )
                             if creation_result["success"]:
                                 st.success(f"✓ Observation created (ID {creation_result['observation_id']})")
+                                st.toast("Governed observation persisted. You may safely continue.")
+                                queue_governed_save_confirmation(
+                                    "Governed Observation",
+                                    detail_label=f"ID {creation_result['observation_id']}",
+                                )
                                 st.rerun()
-                            st.error(creation_result["message"])
+                            else:
+                                st.error(creation_result["message"])
                         except ValueError as exc:
                             st.error(str(exc))
 
@@ -5447,8 +5483,14 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                                     )
                                     if update_result["success"]:
                                         st.success("✓ Observation updated")
+                                        st.toast("Governed observation persisted. You may safely continue.")
+                                        queue_governed_save_confirmation(
+                                            "Governed Observation",
+                                            detail_label=f"ID {selected_observation_id}",
+                                        )
                                         st.rerun()
-                                    st.error(update_result["message"])
+                                    else:
+                                        st.error(update_result["message"])
                                 except ValueError as exc:
                                     st.error(str(exc))
 
@@ -5695,6 +5737,12 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                             st.success(f"✓ Business assessment updated for {pillar_id} {pillar_name}")
                         else:
                             st.success(f"✓ Business assessment saved for {pillar_id} {pillar_name}")
+
+                        st.toast("Business assessment persisted. You may safely continue.")
+                        queue_governed_save_confirmation(
+                            "Business Assessment",
+                            detail_label=f"{pillar_id} {pillar_name}",
+                        )
 
                         if pillar_score_id is None:
                             st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
@@ -5999,6 +6047,12 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                             st.success(f"✓ Investment assessment updated for {pillar_id} {pillar_name}")
                         else:
                             st.success(f"✓ Investment assessment saved for {pillar_id} {pillar_name}")
+
+                        st.toast("Investment assessment persisted. You may safely continue.")
+                        queue_governed_save_confirmation(
+                            "Investment Assessment",
+                            detail_label=f"{pillar_id} {pillar_name}",
+                        )
 
                         if pillar_score_id is None:
                             st.error("Unable to resolve pillar_score_id; evidence links were not synchronized.")
@@ -6378,6 +6432,8 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                         )
 
                         st.success("✓ Decision saved")
+                        st.toast("Decision persisted. You may safely continue.")
+                        queue_governed_save_confirmation("Decision Gate")
                         st.rerun()
             
             st.divider()
