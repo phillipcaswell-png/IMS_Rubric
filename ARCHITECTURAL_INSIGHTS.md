@@ -1,27 +1,38 @@
 # Athena Architectural Insights
 
-## Document Status
+Constitutional documents define how Athena should behave.
 
-**Authority:** Informative  
-**Governed By:** IMS Charter v1.0  
-**Status:** Working Architectural Observations  
-**Operational Authority:** None  
+Historical Replay Validation produces evidence.
 
-This document records architectural insights discovered during Athena development.
+Architectural Insights capture potential evolution.
 
-These observations may influence future design.
+Architectural Validations establish capability baselines every future sprint must preserve.
 
-They are not governing.
+This document records empirical architectural knowledge discovered through Historical Replay Validation and implementation experience.
 
-Nothing in this document authorizes:
+## Architectural Insights
 
-- implementation changes
-- schema changes
-- scoring changes
-- workflow changes
-- constitutional amendments
+**Status:** Observed • Informative • Non-Governing
 
-Promotion requires sufficient validation evidence.
+Purpose:
+
+Architectural Insights capture observations made during development or Historical Replay Validation that may influence future design.
+
+Insights represent supported architectural hypotheses.
+
+Insights do not authorize implementation.
+
+Promotion requires repeated validation across multiple Historical Replay Validation cases.
+
+Each Insight should contain:
+
+- Identifier
+- Discovery Context
+- Observation
+- Supporting Evidence
+- Architectural Implications
+- Promotion Criteria
+- Implementation Status
 
 ---
 
@@ -29,52 +40,39 @@ Promotion requires sufficient validation evidence.
 
 ## Status
 
-Observed
+Observed • Informative • Non-Governing
 
-## Authority
+## Discovery Context
 
-Informative / Non-Governing
+Observed during planning for Historical Replay Validation 001.
 
-## Discovery
+## Observation
 
 Athena's primary purpose is to reduce the amount of knowledge an analyst must personally remember while preserving or increasing governance.
 
-## Working Principle
+## Supporting Evidence
 
-> Athena is improving when the amount of knowledge the analyst must personally remember decreases without reducing governance.
-
-## Interpretation
-
-Athena is not primarily an investment recommendation system.
-
-Athena's enduring product is the Knowledge Record.
+The Knowledge Record is the enduring product.
 
 The investment recommendation is a governed judgment derived from the Knowledge Record at a specific point in time.
 
 The Knowledge Record is an evidence-bounded, temporally disciplined, historically immutable representation of business reality that accumulates learning without rewriting history.
 
-## Governance Boundary
+## Architectural Implications
 
-Reducing analyst effort by reducing governance does not satisfy this principle.
+> Athena is improving when the amount of knowledge the analyst must personally remember decreases without reducing governance.
 
-Automation must preserve:
-
-- analyst judgment
-- evidence review
-- auditability
-- falsifiability
-- reproducibility
-- constitutional discipline
-
-## Evidence Status
-
-Discovered during planning for Historical Replay Validation 001.
-
-Validation evidence pending.
+Athena is not primarily an investment recommendation system.
 
 ## Promotion Criteria
 
 Candidate for constitutional promotion only after multiple Historical Replay Validation cases demonstrate that reducing analyst memory burden improves workflow while maintaining governance.
+
+## Implementation Status
+
+Observation only.
+
+Validation evidence pending.
 
 ---
 
@@ -82,21 +80,23 @@ Candidate for constitutional promotion only after multiple Historical Replay Val
 
 ## Status
 
-Observed
+Observed • Informative • Non-Governing
 
-## Authority
+## Discovery Context
 
-Informative / Non-Governing
+Observed during Historical Replay Validation planning and knowledge record analysis.
 
-## Discovery
+## Observation
 
 Evidence appears to belong to the enduring Knowledge Record rather than exclusively to individual theses.
+
+## Supporting Evidence
 
 Individual evaluations reference evidence.
 
 The Knowledge Record preserves evidence across time.
 
-## Current Architecture
+## Architectural Implications
 
 The current implementation associates evidence with a thesis.
 
@@ -104,120 +104,11 @@ This remains acceptable.
 
 No architectural change is authorized.
 
-## Generation V Candidate
-
-Future generations may evaluate whether evidence should belong to the Knowledge Record while evaluations reference shared evidence.
-
-## Governance Boundary
-
-No implementation.
-
-No schema change.
-
-Observation only.
-
-## Evidence Required
+## Promotion Criteria
 
 Historical Replay Validation must demonstrate repeated evidence reuse across review periods before this observation advances.
 
----
-
-# Phase 1 Artifact Standard
-
-Every Historical Replay Validation Phase 1 shall produce three governed artifacts.
-
-## Artifact 1
-
-Knowledge Record
-
-The historically bounded representation of the business at the evaluation date.
-
----
-
-## Artifact 2
-
-Phase 1 Friction Log
-
-Including:
-
-- Product Bugs
-- Workflow Friction
-- Mechanical Work
-- Governance Concerns
-- Reproducibility Gaps
-
----
-
-## Canonical Friction Classification Taxonomy
-
-Every Phase 1 friction item shall use exactly one of the following classifications:
-
-1. **Product Bug** — The product failed or behaved incorrectly.
-
-2. **Workflow Friction** — The product worked but imposed unnecessary effort.
-
-3. **Mechanical Work** — Manual work that is acceptable today but a candidate for future automation.
-
-4. **Governance Concern** — Behavior that could compromise constitutional principles, evidence discipline, auditability, reproducibility, falsifiability, or immutability.
-
-5. **Reproducibility Gap** — Athena does not preserve or surface sufficient information for an independent analyst to reconstruct the Knowledge Record.
-
----
-
-## Artifact 3
-
-Knowledge Gap Register
-
-Knowledge Gaps measure information Athena required the analyst to remember rather than preserve.
-
-Knowledge Gaps are observations.
-
-They are not feature requests.
-
----
-
-# Knowledge Gap Register Standard
-
-Each entry shall contain:
-
-| Field | Description |
-|---|---|
-| ID | Unique identifier |
-| Workflow Step | Where the gap occurred |
-| Missing Knowledge | Information Athena should have preserved or surfaced |
-| Recovery Method | How the analyst recovered the knowledge |
-| Impact | Effect on workflow, confidence, governance, or reproducibility |
-| Candidate Capability | Future capability that could preserve this knowledge |
-
----
-
-# Initial Knowledge Gap
-
-## KG-0001
-
-**Workflow Step**
-
-Validation thesis creation.
-
-**Missing Knowledge**
-
-Athena cannot currently create and retire validation fixtures entirely through the governed UI.
-
-**Recovery Method**
-
-Temporary validation fixture remained after live verification.
-
-**Impact**
-
-Low operational impact.
-
-Minor repository hygiene issue.
-
-No governance impact.
-
-**Candidate Capability**
-
-Governed Validation Fixture Lifecycle supporting creation, archival, and retirement of validation fixtures entirely through Athena.
+## Implementation Status
 
 Observation only.
 
@@ -225,32 +116,195 @@ No implementation authorized.
 
 ---
 
-# Generation V Candidate Log
+# AI-003 — Candidate Observation Model
 
-## GV-CANDIDATE-001
+## Status
 
-**Title**
+Observed • Informative • Non-Governing
 
-Evidence belongs to the Knowledge Record.
+### Discovery Context
 
-**Status**
+Observed during Historical Replay Validation 001.
 
-Observed.
+Microsoft replay.
 
-**Authority**
+Phase 1 Knowledge Record construction.
 
-None.
+### Observation
 
-**Implementation Authorized**
+Replay demonstrated that analysts naturally reasoned about Theia output as Candidate Observations rather than advisory suggestions.
 
-No.
+Theia does not generate opinions.
 
-**Evidence**
+Theia does not generate recommendations.
 
-Pending Historical Replay Validation.
+Theia identifies candidate factual observations supported by extracted evidence.
 
-**Observation**
+These remain non-governed until explicitly promoted by the analyst into the governed Information Lifecycle.
 
-Evidence may ultimately belong to an enduring Knowledge Record while individual evaluations reference shared evidence.
+Observed replay sequence:
 
-Current schema remains unchanged.
+```
+Evidence
+→ Extraction
+→ Candidate Observation
+→ Promotion
+→ Observation
+→ Knowledge Record
+```
+
+### Supporting Evidence
+
+Observed during live Historical Replay Validation.
+
+Replay evidence demonstrated analyst interaction consistently aligned with Candidate Observation terminology.
+
+### Architectural Implications
+
+- Candidate Observation more accurately reflects Theia's constitutional role.
+- Terminology aligns naturally with Athena's Information Lifecycle.
+- The analyst remains the constitutional promotion authority.
+- Theia remains entirely non-governing.
+
+Current THEIA_SPECIFICATION.md uses advisory suggestions.
+
+If AI-003 is eventually promoted through repeated replay evidence, terminology should be updated consistently throughout the specification.
+
+### Promotion Criteria
+
+Requires repeated validation across multiple Historical Replay Validation cases.
+
+### Implementation Status
+
+Observation only.
+
+No implementation authorized.
+
+---
+
+## Architectural Validations
+
+**Status:** Validated • Evidence Record
+
+Purpose:
+
+Architectural Validations record capabilities empirically demonstrated through live Historical Replay Validation.
+
+A Validation is not a hypothesis.
+
+A Validation is an evidence record.
+
+Validations do not authorize architectural evolution.
+
+They establish capability baselines that every future sprint must preserve.
+
+Each Validation shall include:
+
+- Identifier
+- Validation Context
+- Replay Case
+- Replay Date
+- Capability Demonstrated
+- Observed Workflow
+- Evidence Source
+- Constitutional Significance
+- Regression Requirement
+
+---
+
+# AV-001 — End-to-End Governed Extraction Workflow
+
+## Status
+
+Validated • Evidence Record
+
+### Validation Context
+
+Historical Replay Validation 001
+
+Microsoft
+
+Phase 1 Knowledge Record construction.
+
+### Replay Case
+
+Microsoft Historical Replay Validation 001
+
+### Replay Date
+
+Knowledge Record Date
+
+January 15, 2022
+
+### Capability Demonstrated
+
+Athena successfully executed the complete governed evidence acquisition workflow from historical evidence through permanent Knowledge Record accumulation.
+
+### Observed Workflow
+
+```
+Evidence
+→ Extraction
+→ Candidate Observation
+→ Promotion
+→ Observation
+→ Knowledge Record
+```
+
+### Evidence Source
+
+Historical Replay Validation 001
+
+Microsoft
+
+Phase 1
+
+Governed replay execution.
+
+### Constitutional Significance
+
+Replay demonstrated:
+
+- Evidence remained historically bounded.
+- Theia performed evidence perception without constitutional authority.
+- Candidate Observations remained non-governed until analyst promotion.
+- Promotion remained an explicit constitutional gate.
+- Governed Observations accumulated within the Knowledge Record.
+- Institutional knowledge increased while governance remained entirely analyst controlled.
+
+This represents the first successful empirical validation of Athena's governed evidence acquisition lifecycle.
+
+### Regression Requirement
+
+Future architectural milestones shall verify that the complete governed extraction workflow continues to function without constitutional regression.
+
+Regression confirmation requires successful execution of:
+
+```
+Evidence
+→ Extraction
+→ Candidate Observation
+→ Promotion
+→ Observation
+→ Knowledge Record
+```
+
+Failure of any stage constitutes regression against AV-001 and shall be classified as a Product Bug until proven otherwise.
+
+AV-001 remains active for every future Historical Replay Validation case.
+
+---
+
+## Pre-Release Verification Requirement
+
+AV-001's Regression Requirement and the Case 001 Five Constitutional Smoke Tests together constitute Athena's mandatory constitutional regression gate.
+
+Every future release, milestone, or sprint gate shall verify both.
+
+Case 001 verifies constitutional regression.
+
+AV-001 verifies governed extraction workflow regression.
+
+Neither verification may be omitted independently.
+
+Both shall appear together in every future pre-release verification checklist.
