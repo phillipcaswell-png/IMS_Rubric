@@ -15,6 +15,7 @@ derive_workflow_ownership_state = workflow_assistant_module.derive_workflow_owne
 prioritize_active_evaluation_rows = workflow_assistant_module.prioritize_active_evaluation_rows
 resolve_active_evaluation_identity = workflow_assistant_module.resolve_active_evaluation_identity
 from services import (
+    DATABASE_FILE,
     init_db,
     run_query,
     fetch_dataframe,
@@ -3264,6 +3265,7 @@ with st.sidebar:
         st.session_state["current_view"] = "New Thesis"
         st.session_state["selected_thesis_id"] = None
         st.rerun()
+    st.caption(f"Runtime DB Path: {DATABASE_FILE}")
     st.markdown(
         f"<div style='margin-top:0.8rem; color:#8D95A8; font-size:0.78rem; line-height:1.4;'>{ATHENA_SIDEBAR_VERSION_TEXT}<br/>{ATHENA_SIDEBAR_FOOTER_TEXT}</div>",
         unsafe_allow_html=True,

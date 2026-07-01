@@ -30,7 +30,12 @@ except Exception:
 # DATABASE SERVICES
 # =============================================================================
 
-DATABASE_FILE = "/Users/phillipcaswell/ims_mvp.db"
+DEFAULT_DATABASE_FILE = "/Users/phillipcaswell/ims_mvp.db"
+# Canonical runtime DB authority defaults to an external path outside the repo.
+# The repo-local ./ims_mvp.db is not the governed runtime authority unless
+# ATHENA_DB_PATH is explicitly set to that path.
+# Do not infer governed-record completeness from repo-local ./ims_mvp.db.
+DATABASE_FILE = os.environ.get("ATHENA_DB_PATH", DEFAULT_DATABASE_FILE)
 
 
 def init_db():

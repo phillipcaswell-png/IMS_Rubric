@@ -150,3 +150,22 @@ uv run streamlit run streamlit_app.py
 ```bash
 .venv/bin/python -m pytest -q tests/test_workflow_assistant.py tests/test_evaluation_engine.py tests/test_evidence_discovery.py tests/test_evidence_acquisition.py tests/test_extraction_coordinator.py
 ```
+
+## Runtime Database Authority
+
+Athena resolves its runtime SQLite path as follows:
+
+- If `ATHENA_DB_PATH` is set, Athena uses that path.
+- Otherwise, Athena defaults to `/Users/phillipcaswell/ims_mvp.db` for backward compatibility.
+
+Database authority note:
+
+- Repo-local `./ims_mvp.db` is a tracked historical/bootstrap artifact.
+- Repo-local `./ims_mvp.db` is not the governed runtime store unless `ATHENA_DB_PATH` explicitly points to it.
+- Do not infer governed-record completeness from repo-local `./ims_mvp.db`.
+
+Current provenance context:
+
+- External runtime DB at `/Users/phillipcaswell/ims_mvp.db` currently contains governed runtime records.
+- Kodak status is not resolved by DB provenance alone.
+- Kodak status depends on direct `thesis_reviews` Outcome Attribution evidence.
