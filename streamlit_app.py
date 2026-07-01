@@ -2901,23 +2901,140 @@ def format_display_value(value, fallback="Not available"):
     return text if text else fallback
 
 
+EXPLICIT_ARCHIVED_STATUS_LABELS = {
+    7: "Roadmap-Archived / Type A Review Established",
+    8: "Roadmap-Archived / No-Touch Regression Reference",
+}
+
+# Archived constitutional assets are identity-scoped by governed thesis identifiers.
+# Do not infer archival identity from company name or ticker.
+ARCHIVED_CONSTITUTIONAL_ASSET_THESIS_IDS = {7, 8}
+
+# Unclassified and ambiguous records are excluded from operational work queues
+# until governed identity and lifecycle authority is explicit.
+UNCLASSIFIED_DATA_HYGIENE_THESIS_IDS = {1, 3, 4, 5, 6, 9, 10, 11, 12, 13}
+
+# Explicitly allowed operational records in current runtime data.
+# Future ratified identities can be added through governed process.
+ALLOWED_ACTIVE_OPERATIONAL_THESIS_IDS = set()
+
+AFFIRMATIVE_ACTIVE_STATUS_LABELS = {
+    "active",
+    "in progress",
+    "in-progress",
+    "operational",
+    "pursued",
+}
+
+# thesis_id=14 remains unresolved governance identity and should not be treated
+# as clean active HRV-002 execution until governance state is explicit.
+GOVERNANCE_ATTENTION_ONLY_THESIS_IDS = {14}
+
+
+def _to_int_thesis_id(thesis_id):
+    try:
+        return int(thesis_id) if thesis_id is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def is_archived_constitutional_asset(thesis_id):
+    thesis_id_int = _to_int_thesis_id(thesis_id)
+    return thesis_id_int in ARCHIVED_CONSTITUTIONAL_ASSET_THESIS_IDS
+
+
+def is_governance_attention_only_asset(thesis_id):
+    thesis_id_int = _to_int_thesis_id(thesis_id)
+    return thesis_id_int in GOVERNANCE_ATTENTION_ONLY_THESIS_IDS
+
+
+def is_unclassified_non_operational_record(row):
+    thesis_id_int = _to_int_thesis_id((row or {}).get("thesis_id") if isinstance(row, dict) else None)
+    if thesis_id_int is None:
+        return False
+    return thesis_id_int in UNCLASSIFIED_DATA_HYGIENE_THESIS_IDS
+
+
+def has_affirmative_active_signal(row):
+    thesis_id_int = _to_int_thesis_id((row or {}).get("thesis_id") if isinstance(row, dict) else None)
+    if thesis_id_int is None:
+        return False
+
+    if bool((row or {}).get("explicit_active_program")):
+        return True
+
+    active_program_identity = _display_text((row or {}).get("active_program_identity") if isinstance(row, dict) else "")
+    if active_program_identity:
+        return True
+
+    status_text = _display_text((row or {}).get("status") if isinstance(row, dict) else "").lower()
+    if status_text in AFFIRMATIVE_ACTIVE_STATUS_LABELS:
+        return True
+
+    return thesis_id_int in ALLOWED_ACTIVE_OPERATIONAL_THESIS_IDS
+
+
+def is_active_operational_work(row):
+    thesis_id_int = _to_int_thesis_id((row or {}).get("thesis_id") if isinstance(row, dict) else None)
+    if thesis_id_int is None:
+        return False
+    if is_archived_constitutional_asset(thesis_id_int):
+        return False
+    if is_governance_attention_only_asset(thesis_id_int):
+        return False
+    if is_unclassified_non_operational_record(row):
+        return False
+
+    status_text = _display_text((row or {}).get("status") if isinstance(row, dict) else "")
+    if status_text == STATUS_CLOSED:
+        return False
+
+    return has_affirmative_active_signal(row)
+
+
+def should_show_on_home_active_work(row):
+    return is_active_operational_work(row)
+
+
+def should_show_governance_attention(row):
+    thesis_id_int = _to_int_thesis_id((row or {}).get("thesis_id"))
+    if thesis_id_int is None:
+        return False
+
+    if bool((row or {}).get("governance_unresolved")):
+        return True
+
+    if is_governance_attention_only_asset(thesis_id_int):
+        return True
+
+    if thesis_id_int == 7:
+        return bool((row or {}).get("framework_review_eligible"))
+
+    return False
+
+
+def build_governance_attention_message(row):
+    thesis_id_int = _to_int_thesis_id((row or {}).get("thesis_id"))
+    if thesis_id_int is None:
+        return ""
+
+    if bool((row or {}).get("governance_unresolved")):
+        return "Governance unresolved follow-up required"
+
+    if thesis_id_int == 7 and bool((row or {}).get("framework_review_eligible")):
+        return "Kodak archived asset — Framework Review Consideration Eligible"
+    if thesis_id_int == 14:
+        return "Microsoft thesis_id=14 — Closure / identity ambiguity"
+    return ""
+
+
 def derive_asset_status_label(company_name, ticker, persisted_status, thesis_id=None, fallback="—"):
     """Map archived constitutional asset labels using explicit governed identity only."""
     persisted_text = _display_text(persisted_status)
-    try:
-        thesis_id_int = int(thesis_id) if thesis_id is not None else None
-    except (TypeError, ValueError):
-        thesis_id_int = None
+    thesis_id_int = _to_int_thesis_id(thesis_id)
 
-    # Archived constitutional asset labels require explicit governed identity.
-    # Do not infer archival status from company name or ticker alone.
-    explicit_archived_labels = {
-        7: "Roadmap-Archived / Type A Review Established",
-        8: "Roadmap-Archived / No-Touch Regression Reference",
-    }
-
-    if thesis_id_int in explicit_archived_labels:
-        return explicit_archived_labels[thesis_id_int]
+    if thesis_id_int in EXPLICIT_ARCHIVED_STATUS_LABELS:
+        return EXPLICIT_ARCHIVED_STATUS_LABELS[thesis_id_int]
 
     return persisted_text if persisted_text else fallback
 
@@ -3063,14 +3180,11 @@ def render_company_logo_placeholder(company_name, ticker=None, thesis_id=None):
     initials = "".join(word[0] for word in company_text.split()[:4] if word)[:4].upper()
     label = ticker_text if ticker_text else (initials if initials else "ATH")
 
-    try:
-        thesis_id_int = int(thesis_id) if thesis_id is not None else None
-    except (TypeError, ValueError):
-        thesis_id_int = None
+    thesis_id_int = _to_int_thesis_id(thesis_id)
 
     # Archived visual styling requires explicit governed identity.
     # Do not infer archival status from company name or ticker alone.
-    archived_visual_thesis_ids = {7, 8}
+    archived_visual_thesis_ids = set(EXPLICIT_ARCHIVED_STATUS_LABELS.keys())
 
     palette_class = "home-logo-generic"
     if thesis_id_int in archived_visual_thesis_ids:
@@ -4026,15 +4140,32 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
         home_rows.append(row)
 
     home_rows = sorted(home_rows, key=lambda row: row["priority_key"])
-    needs_attention_rows = [row for row in home_rows if format_display_value(row.get("status"), "") != STATUS_CLOSED][:5]
+    active_home_rows = [row for row in home_rows if should_show_on_home_active_work(row)]
+    needs_attention_rows = active_home_rows[:5]
+
+    governance_attention_rows = []
+    for row in home_rows:
+        if not should_show_governance_attention(row):
+            continue
+        governance_message = build_governance_attention_message(row)
+        if not governance_message:
+            continue
+        governance_attention_rows.append(
+            {
+                "thesis_id": int(row["thesis_id"]),
+                "company_name": row.get("company_name"),
+                "message": governance_message,
+                "next_action": derive_next_action_display(row),
+            }
+        )
 
     current_eval_row = None
-    for row in home_rows:
+    for row in active_home_rows:
         if row.get("is_active"):
             current_eval_row = row
             break
-    if current_eval_row is None and home_rows:
-        current_eval_row = home_rows[0]
+    if current_eval_row is None and active_home_rows:
+        current_eval_row = active_home_rows[0]
 
     hour = datetime.now().hour
     greeting = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
@@ -4066,11 +4197,21 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
                     st.session_state["current_view"] = "Workspace"
                     st.rerun()
 
+        if governance_attention_rows:
+            st.markdown("<div class='home-section-title' style='margin-top:0.95rem;'>Governance Attention</div>", unsafe_allow_html=True)
+            for governance_item in governance_attention_rows:
+                st.markdown(
+                    f"<div class='home-card-detail'><strong>{format_display_value(governance_item['company_name'])}</strong> — {format_display_value(governance_item['message'])}</div>",
+                    unsafe_allow_html=True,
+                )
+
         st.markdown("<div class='home-section-title' style='margin-top:0.95rem;'>Current Evaluation</div>", unsafe_allow_html=True)
-        if render_current_evaluation_panel(current_eval_row):
+        if current_eval_row is not None and render_current_evaluation_panel(current_eval_row):
             st.session_state["selected_thesis_id"] = int(current_eval_row["thesis_id"])
             st.session_state["current_view"] = "Workspace"
             st.rerun()
+        elif current_eval_row is None:
+            empty_state("No active evaluation selected.")
 
         st.markdown("<div class='home-section-title' style='margin-top:0.95rem;'>Quick Actions</div>", unsafe_allow_html=True)
         q1, q2, q3, q4 = st.columns(4)
@@ -4099,7 +4240,7 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
         )
 
     with right_col:
-        render_home_sidebar_panels(home_rows)
+        render_home_sidebar_panels(active_home_rows)
 
         recent_activity_df = fetch_dataframe(
             """
@@ -4157,6 +4298,9 @@ elif st.session_state['current_view'] == 'Portfolio':
     rows = []
     for _, row in portfolio_df.iterrows():
         thesis_id = int(row["id"])
+        if not is_active_operational_work({"thesis_id": thesis_id, "status": row.get("status")}):
+            continue
+
         gate = validate_decision_gate(thesis_id)
         score_progress_df = fetch_dataframe(
             """
@@ -4205,7 +4349,7 @@ elif st.session_state['current_view'] == 'Portfolio':
 
     inventory_df = pd.DataFrame(rows)
     if inventory_df.empty:
-        empty_state("No theses found.")
+        empty_state("No active pursued evaluations found.")
     else:
         decision_ready_count = int((inventory_df["Next Action"] == "Record or update decision").sum())
         historical_reviews_count = int((inventory_df["Lifecycle Stage"] == "Historical Review").sum())
@@ -4220,6 +4364,7 @@ elif st.session_state['current_view'] == 'Portfolio':
                 {"label": "Framework Eligible", "value": framework_eligible_count},
             ],
         )
+        st.caption("Archived constitutional assets are excluded from active portfolio views and remain available through History records.")
         search_query = st.text_input("Search", placeholder="Company, ticker, or status")
         status_options = ["All"] + sorted(inventory_df["Current Status"].dropna().astype(str).unique().tolist())
         selected_status = st.selectbox("Filter", options=status_options)
@@ -4448,6 +4593,9 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
         )
         for _, workspace_row in workspace_theses_df.iterrows():
             workspace_tid = int(workspace_row["id"])
+            if not is_active_operational_work({"thesis_id": workspace_tid, "status": workspace_row.get("status")}):
+                continue
+
             gate = validate_decision_gate(workspace_tid)
             score_df = fetch_dataframe(
                 """
