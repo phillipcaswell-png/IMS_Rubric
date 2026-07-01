@@ -2901,6 +2901,27 @@ def format_display_value(value, fallback="Not available"):
     return text if text else fallback
 
 
+def derive_asset_status_label(company_name, ticker, persisted_status, thesis_id=None, fallback="—"):
+    """Map archived constitutional asset labels using explicit governed identity only."""
+    persisted_text = _display_text(persisted_status)
+    try:
+        thesis_id_int = int(thesis_id) if thesis_id is not None else None
+    except (TypeError, ValueError):
+        thesis_id_int = None
+
+    # Archived constitutional asset labels require explicit governed identity.
+    # Do not infer archival status from company name or ticker alone.
+    explicit_archived_labels = {
+        7: "Roadmap-Archived / Type A Review Established",
+        8: "Roadmap-Archived / No-Touch Regression Reference",
+    }
+
+    if thesis_id_int in explicit_archived_labels:
+        return explicit_archived_labels[thesis_id_int]
+
+    return persisted_text if persisted_text else fallback
+
+
 def derive_decision_label(row):
     """Return governed decision label without creating new governed outcomes."""
     recommendation = _display_text((row or {}).get("recommendation"))
@@ -3035,22 +3056,27 @@ def derive_next_action_display(row):
     return "Continue Evaluation"
 
 
-def render_company_logo_placeholder(company_name, ticker=None):
+def render_company_logo_placeholder(company_name, ticker=None, thesis_id=None):
     """Render internal placeholder identifier blocks for Home cards."""
     ticker_text = _display_text(ticker).upper()
     company_text = _display_text(company_name)
     initials = "".join(word[0] for word in company_text.split()[:4] if word)[:4].upper()
     label = ticker_text if ticker_text else (initials if initials else "ATH")
 
+    try:
+        thesis_id_int = int(thesis_id) if thesis_id is not None else None
+    except (TypeError, ValueError):
+        thesis_id_int = None
+
+    # Archived visual styling requires explicit governed identity.
+    # Do not infer archival status from company name or ticker alone.
+    archived_visual_thesis_ids = {7, 8}
+
     palette_class = "home-logo-generic"
-    if ticker_text == "EK" or "kodak" in company_text.lower():
-        palette_class = "home-logo-kodak"
-    elif ticker_text == "NVDA" or "nvidia" in company_text.lower():
-        palette_class = "home-logo-nvda"
+    if thesis_id_int in archived_visual_thesis_ids:
+        palette_class = "home-logo-archived"
     elif ticker_text == "QCOM" or "qualcomm" in company_text.lower():
         palette_class = "home-logo-qcom"
-    elif ticker_text == "META" or "meta" in company_text.lower():
-        palette_class = "home-logo-meta"
 
     st.markdown(
         f"<div class='home-logo-block {palette_class}'>{label}</div>",
@@ -3080,7 +3106,11 @@ def render_home_evaluation_card(row, button_key):
     with st.container(border=True):
         c_logo, c_body, c_cta = st.columns([1.1, 5.2, 1.4])
         with c_logo:
-            render_company_logo_placeholder((row or {}).get("company_name"), (row or {}).get("ticker"))
+            render_company_logo_placeholder(
+                (row or {}).get("company_name"),
+                (row or {}).get("ticker"),
+                thesis_id=(row or {}).get("thesis_id"),
+            )
         with c_body:
             st.markdown(
                 f"<div class='home-card-company'>{format_display_value((row or {}).get('company_name'))}</div>",
@@ -3130,7 +3160,11 @@ def render_current_evaluation_panel(row):
     with st.container(border=True):
         col_logo, col_info, col_action = st.columns([1.1, 5.4, 1.5])
         with col_logo:
-            render_company_logo_placeholder(row.get("company_name"), row.get("ticker"))
+            render_company_logo_placeholder(
+                row.get("company_name"),
+                row.get("ticker"),
+                thesis_id=row.get("thesis_id"),
+            )
         with col_info:
             st.markdown(
                 f"<div class='home-card-company'>{format_display_value(row.get('company_name'))}</div>",
@@ -3431,7 +3465,13 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
                 "thesis_id": tid,
                 "Company": thesis_row["company_name"],
                 "Ticker": thesis_row["ticker"] if pd.notna(thesis_row["ticker"]) and str(thesis_row["ticker"]).strip() else "—",
-                "Status": thesis_row["status"] if pd.notna(thesis_row["status"]) and str(thesis_row["status"]).strip() else "—",
+                "Status": derive_asset_status_label(
+                    thesis_row["company_name"],
+                    thesis_row["ticker"],
+                    thesis_row["status"],
+                    thesis_id=tid,
+                    fallback="—",
+                ),
                 "Recommendation": recommendation_value,
                 "Business Score": business_score_value,
                 "Investment Score": investment_score_value,
@@ -3714,10 +3754,11 @@ if st.session_state['current_view'] in ['Home', 'Dashboard']:
             border: 1px solid rgba(255,255,255,0.15);
             margin-top: 0.15rem;
         }
-        .home-logo-kodak { background: linear-gradient(135deg, #E9B913 0%, #D63A2B 100%); }
-        .home-logo-nvda { background: linear-gradient(135deg, #76B900 0%, #0A0A0A 100%); }
+        .home-logo-kodak { background: linear-gradient(135deg, #586274 0%, #313848 100%); }
+        .home-logo-nvda { background: linear-gradient(135deg, #586274 0%, #313848 100%); }
         .home-logo-qcom { background: linear-gradient(135deg, #2B7DFF 0%, #103B7A 100%); }
-        .home-logo-meta { background: linear-gradient(135deg, #2D88FF 0%, #1B4E8F 100%); }
+        .home-logo-meta { background: linear-gradient(135deg, #586274 0%, #313848 100%); }
+        .home-logo-archived { background: linear-gradient(135deg, #586274 0%, #313848 100%); }
         .home-logo-generic { background: linear-gradient(135deg, #586274 0%, #313848 100%); }
         .home-card-company {
             font-family: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
@@ -4148,7 +4189,13 @@ elif st.session_state['current_view'] == 'Portfolio':
                 "thesis_id": thesis_id,
                 "Company": row["company_name"],
                 "Ticker": row["ticker"] if pd.notna(row["ticker"]) and str(row["ticker"]).strip() else "—",
-                "Current Status": row["status"] if pd.notna(row["status"]) and str(row["status"]).strip() else "—",
+                "Current Status": derive_asset_status_label(
+                    row["company_name"],
+                    row["ticker"],
+                    row["status"],
+                    thesis_id=thesis_id,
+                    fallback="—",
+                ),
                 "Lifecycle Stage": lifecycle_stage,
                 "Recommendation": recommendation,
                 "Last Updated": row["last_updated"] if pd.notna(row["last_updated"]) else "—",
@@ -4427,7 +4474,13 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                     "Ticker": workspace_row["ticker"] if pd.notna(workspace_row["ticker"]) and str(workspace_row["ticker"]).strip() else "Ticker not assigned",
                     "Current Stage": stage,
                     "Next Recommended Action": next_action,
-                    "Current Status": workspace_row["status"] if pd.notna(workspace_row["status"]) and str(workspace_row["status"]).strip() else "Status not set",
+                    "Current Status": derive_asset_status_label(
+                        workspace_row["company_name"],
+                        workspace_row["ticker"],
+                        workspace_row["status"],
+                        thesis_id=workspace_tid,
+                        fallback="Status not set",
+                    ),
                 }
             )
 
@@ -4600,7 +4653,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    evidence_title = st.text_input("Title *", placeholder="e.g., NVIDIA Q2 10-Q Filing")
+                    evidence_title = st.text_input("Title *", placeholder="e.g., Archived regression filing (historical)")
                 
                 with col2:
                     source_type = st.selectbox(
