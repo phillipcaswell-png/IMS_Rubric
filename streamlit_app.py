@@ -4207,15 +4207,17 @@ elif st.session_state['current_view'] == 'Portfolio':
     if inventory_df.empty:
         empty_state("No theses found.")
     else:
-        decision_ready_count = sum(1 for gate in gate_results_by_thesis_id.values() if gate.get("eligible"))
+        decision_ready_count = int((inventory_df["Next Action"] == "Record or update decision").sum())
+        historical_reviews_count = int((inventory_df["Lifecycle Stage"] == "Historical Review").sum())
+        framework_eligible_count = int((inventory_df["Lifecycle Stage"] == "Framework Review").sum())
         render_summary_row(
             "Portfolio Overview",
             "A compact view of the portfolio register and its current workload.",
             [
                 {"label": "Total Evaluations", "value": len(inventory_df)},
                 {"label": "Decision-Ready", "value": decision_ready_count},
-                {"label": "Historical Reviews", "value": int(len(reviewed_ids))},
-                {"label": "Framework Eligible", "value": int(len(framework_eligible_ids))},
+                {"label": "Historical Reviews", "value": historical_reviews_count},
+                {"label": "Framework Eligible", "value": framework_eligible_count},
             ],
         )
         search_query = st.text_input("Search", placeholder="Company, ticker, or status")
