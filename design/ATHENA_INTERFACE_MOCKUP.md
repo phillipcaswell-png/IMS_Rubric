@@ -38,7 +38,7 @@ Moving through Modes is moving through the governed process.
 ```
 Athena ──────────────────────────── Workspace Theses History Settings
 
-──────────────────────────── Active Eastman Kodak ⬤ In Progress
+──────────────────────────── Archived Regression Example — Eastman Kodak
 
 ```
 Rules:
@@ -76,7 +76,7 @@ Question this screen answers: What are you doing today?
 
 Hero statement: Your work. Your focus. Right now.
 ```
-┌─────────────────────────────────────────────────────────────┐ │ │ │ Athena [+ New Thesis] │ │ GOVERNED INVESTMENT INTELLIGENCE │ │ [themis.svg] Governed by Athena Charter v1.0 │ │ │ │ ───────────────────────────────────────────────────── │ │ │ │ Continue Working │ │ │ │ Eastman Kodak Company │ │ Historical Validation │ │ │ │ Can Athena identify structural regime change │ │ using only contemporaneous evidence? │ │ │ │ Evidence ██████████ Complete │ │ Assessment █████░░░░░ 3 of 7 │ │ Decision ░░░░░░░░░░ Not eligible │ │ │ │ [Continue →] │ │ │ │ ───────────────────────────────────────────────────── │ │ │ │ Today's Focus │ │ · 4 Business pillars remaining │ │ · Decision not yet eligible │ │ · Next milestone: Themis Governance │ │ │ │ ───────────────────────────────────────────────────── │ │ │ │ Portfolio │ │ 6 Active · 2 Awaiting Review · 1 Validation Complete │ │ │ └─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐ │ │ │ Athena [+ New Thesis] │ │ GOVERNED INVESTMENT INTELLIGENCE │ │ [themis.svg] Governed by Athena Charter v1.0 │ │ │ │ ───────────────────────────────────────────────────── │ │ │ │ Regression Reference │ │ │ │ Eastman Kodak Company │ │ Historical Validation │ │ │ │ Can Athena identify structural regime change │ │ using only contemporaneous evidence? │ │ │ │ Evidence ██████████ Complete │ │ Assessment █████░░░░░ 3 of 7 │ │ Decision ░░░░░░░░░░ Not eligible │ │ │ │ [Continue →] │ │ │ │ ───────────────────────────────────────────────────── │ │ │ │ Today's Focus │ │ · 4 Business pillars remaining │ │ · Decision not yet eligible │ │ · Archived regression reference │ │ │ │ ───────────────────────────────────────────────────── │ │ │ │ Portfolio │ │ 6 Active · 2 Awaiting Review · 1 Validation Complete │ │ │ └─────────────────────────────────────────────────────────────┘
 
 ```
 Rules:
@@ -190,6 +190,8 @@ Subtitle: Historical Review
 Question this screen answers: What did history reveal?
 
 Hero statement: Learn without rewriting the past.
+
+Note: This Mnemosyne screen is illustrative design content and does not constitute a governed Outcome Attribution record.
 ```
 ┌─────────────────────────────────────────────────────────────┐ │ Eastman Kodak · Mnemosyne │ │ Historical Review │ │ │ │ Learn without rewriting the past. │ │ │ │ [mnemosyne.svg] Mnemosyne · Memory │ │ │ │ Decision recorded 30 September 2000 │ │ Observe · Medium Conviction │ │ │ │ ───────────────────────────────────────────────────── │ │ │ │ TIMELINE │ │ │ │ 2000 ──●── Decision Recorded │ │ Observe · 30 Sep 2000 │ │ │ │ │ │ │ ▼ │ │ │ │ 2001 ──●── 1 Year Review ✓ │ │ Type D — Random Variation │ │ Stock declined as digital transition │ │ accelerated beyond expectations. │ │ │ │ │ │ │ ▼ │ │ │ │ 2003 ──●── 3 Year Review ✓ │ │ Type C2 — Structural Regime Change │ │ Digital photography became dominant. │ │ Film revenue declined structurally. │ │ │ │ │ │ │ ▼ │ │ │ │ 2005 ──○── 5 Year Review · Pending │ │ [Record 5 Year Outcome] │ │ │ └─────────────────────────────────────────────────────────────┘
 

@@ -1,123 +1,258 @@
-Validation Portfolio
+# VALIDATION_PORTFOLIO.md v1.0
 
-Purpose:
-Define a multi-case validation portfolio that stress-tests constitutional behavior across distinct operating environments and thesis failure modes.
+## Document Metadata
+Document: VALIDATION_PORTFOLIO.md
+
+Version: 1.0
+
+Effective Date: July 1, 2026
+
+Status: Draft — Pending Review
+
+Supersedes:
+
+Previous Generation II validation roadmap references contained within the Athena Bootstrap and Phase I implementation planning.
+
+Authority:
+
+IMS Charter
+
+Athena Bootstrap
+
+Independent Audit Contract
+
+GDR-001 — Validation Portfolio Rationalization
+
+Hierarchy Placement:
+
+This document is a governed validation artifact operating under the IMS Charter. It is parallel to, but distinct from, the design-authority chain defined in Athena Bootstrap Section 5. In the event of conflict, the IMS Charter controls. This document governs validation portfolio scope, validation status, archival classification, and Generation III validation entry requirements.
+
+GDR-001 authorizes this version of the Validation Portfolio. VALIDATION_PORTFOLIO.md is the enduring governed artifact produced by that decision record.
+
+## Purpose
+The Validation Portfolio defines Athena's governed validation strategy.
+
+Its purpose is to ensure Athena demonstrates constitutional compliance, operational readiness, reproducibility, and institutional learning through a focused set of governed validation programs.
+
+This document is the authoritative source for Athena validation governance.
 
 ## Validation Philosophy
+Athena validates constitutional capability.
 
-Athena maintains two complementary validation streams.
+Companies are selected because they exercise specific architectural capabilities.
 
-### Calibration Validation
+Once those capabilities have been demonstrated or superseded, the company becomes an archived constitutional asset rather than an active roadmap dependency.
 
-Purpose:
+Athena validates systems, not companies.
 
-- refine reasoning
-- improve scoring consistency
-- improve Replay Sufficiency
-- improve governance
-- improve analyst experience
+Companies are evidence.
 
-Primary success metric:
+The architecture is the product.
 
-Athena produces increasingly consistent governed decisions.
+## Canonical Validation Portfolio
 
-### Longitudinal Validation
+### Active Validation Programs
 
-Purpose:
+## LVT-001 — SpaceX Operational Validation
 
-- preserve institutional memory
-- measure thesis evolution
-- validate constitutional continuity
-- measure reasoning stability through time
+### Purpose
+Validate Athena as an operational analyst platform.
 
-Primary success metric:
+### Primary Objective
+Demonstrate that Athena can support a governed analyst through the complete investment workflow while preserving constitutional integrity.
 
-Athena preserves reproducible reasoning while extending a thesis without rewriting history.
+### Evidence Boundary
+Snapshot S001 Evidence Cutoff:
 
-**Longitudinal Validation extends institutional memory. It does not revise institutional history.**
+May 20, 2026 S-1.
 
-## Validation Portfolio Schema
+All Snapshot S001 reasoning must remain bounded to the governed evidence set available at the cutoff.
 
-Each portfolio entry shall contain the following fields:
+No score, recommendation, or conclusion for Snapshot S001 may rely on information outside the defined evidence boundary.
+
+### Capabilities Validated
+
+- Hermes monitoring
+- Evidence acquisition
+- Evidence grading
+- Knowledge Record creation
+- Assessment workflow
+- Decision Gate
+- Audit Trail
+- Analyst-assisted operation
+- Ready-for-Analyst workflow
+
+### Success Criteria
+
+- End-to-end governed workflow completed.
+- Constitutional audit passes.
+- Analyst actions fully traceable.
+- Process reproducibility demonstrated, meaning the same governed evidence set produces materially consistent reasoning and recommendations independent of eventual investment outcome.
+
+This validation does not require eventual investment success.
+
+## HRV-002 — Microsoft Longitudinal Validation
+
+### Purpose
+Validate constitutional stability across time.
+
+### Primary Objective
+Demonstrate that Athena maintains reproducible reasoning and governance across a one-year historical investment cycle.
+
+### Identifier Boundary
+HRV-002 is the active Microsoft longitudinal validation cycle.
+
+HRV-001 remains the historical closed Microsoft review cycle and must not be reused, relabeled, or overwritten.
+
+### Capabilities Validated
+
+- Historical replay
+- Reproducibility
+- Calibration stability
+- Framework consistency
+- Outcome Attribution
+- Institutional learning
+
+### Success Criteria
+
+- Historical replay completed.
+- Calibration remains constitutionally stable.
+- Charter Outcome Attribution taxonomy exercised through a governed historical review.
+- A resolved outcome classification, Type A, B, C1, C2, or D, is documented for the review period.
+- If the resolved classification is Type A or Type C2, Kodak's designated Outcome Attribution regression role is fulfilled and may be retired following constitutional review.
+
+HRV-002 may complete with a Type B, C1, or D classification. Such completion validates longitudinal review and taxonomy use, but it does not discharge Kodak's designated Outcome Attribution regression role.
+
+## Archived Constitutional Assets
+Archived assets preserve institutional knowledge and constitutional regression capability.
+
+They are no longer active development priorities.
+
+### Meta Platforms
+Constitutional Purpose:
+
+Historical regression baseline.
+
+Ensures future architectural evolution does not introduce unintended behavioral regression.
+
+### NVIDIA
+Constitutional Purpose:
+
+Fully automated no-touch pipeline regression.
+
+Validates Athena's autonomous acquisition pipeline.
+
+This remains constitutionally distinct from LVT-001 SpaceX, which validates the governed analyst-assisted operational workflow.
+
+### Intel OVC
+Constitutional Purpose:
+
+Workflow-discovery regression.
+
+Preserves the original Observe → OVC → INT operational validation sequence that informed Athena's analyst workflow architecture.
+
+### Kodak
+Constitutional Purpose:
+
+Outcome Attribution regression reference.
+
+Retirement Criterion:
+
+Kodak remains the designated Outcome Attribution regression reference until HRV-002 produces a governed historical review containing a resolved Type A or Type C2 classification.
+
+Upon successful constitutional review of that result, Kodak may be reclassified as a general archived regression asset.
+
+If HRV-002 completes with a Type B, C1, or D classification, Kodak remains retained as the named Outcome Attribution regression reference.
+
+If Generation III readiness is considered before a Type A or Type C2 case has been resolved, the unresolved Type A/C2 coverage gap must be explicitly documented as an accepted constitutional limitation in:
+
+- VALIDATION_PORTFOLIO.md
+- GDR-001 — Validation Portfolio Rationalization
+- The Generation III readiness review
+
+This dependency exists to ensure Outcome Attribution coverage remains visible and auditable until the Type A/C2 pathway is resolved or formally carried forward as an accepted Generation III limitation.
+
+## Validation Governance
+Validation exists to strengthen constitutional confidence.
+
+Validation does not exist to maximize company coverage.
+
+Additional validation companies require explicit constitutional justification tied to an uncovered architectural capability.
+
+## Validation Record Schema
+
+Each validation record shall maintain sufficient metadata to preserve reproducibility, auditability, falsifiability, and constitutional traceability.
+
+Required fields:
 
 | Field | Required |
 |---|---|
 | Validation ID | Yes |
-| Validation Type (HRV / LVT) | Yes |
-| Company | Yes |
-| Thesis ID | Yes |
-| Snapshot | Yes (LVT only; N/A for HRV) |
+| Validation Type | Yes |
+| Company / Subject | Yes |
+| Thesis ID | Yes, if applicable |
+| Snapshot ID | Required for LVT records; N/A for HRV records |
 | Evidence Cutoff | Yes |
 | Evaluation Date | Yes |
-| Decision Gate | Yes |
+| Review Date | Required for historical review |
+| Decision Gate Status | Yes |
 | Replay Sufficiency Score | Yes |
 | Falsification Triggers Defined | Yes |
+| Outcome Attribution Classification | Required once review is complete |
 | Status | Yes |
+
+Validation identifiers must not be reused across distinct governed reviews.
 
 ## Snapshot Constitutional Rules
 
-1. Snapshot Immutability
-2. Thesis Inheritance
-3. Evidence Date Bounding
-4. Snapshot Non-Modification
-5. Decision Gate Independence
-6. Snapshot Sequence Integrity
+Snapshot-based validation must preserve institutional history.
 
-Snapshot Sequence Integrity rule:
+Rules:
+
+1. Snapshot immutability.
+2. Thesis inheritance.
+3. Evidence date bounding.
+4. Snapshot non-modification.
+5. Decision Gate independence.
+6. Snapshot Sequence Integrity.
+
+Snapshot Sequence Integrity requires:
 
 - snapshots are append-only;
-- snapshots shall be created in chronological order;
+- snapshots are created in chronological order;
 - no ratified snapshot may later be inserted between existing snapshots;
 - institutional history may not be rewritten through retroactive snapshot insertion.
 
+LVT-001 Snapshot S001 is governed by these rules and is evidence-bounded to the May 20, 2026 S-1 cutoff.
+
 ## Replay Sufficiency
 
-Replay Sufficiency is a governed field for all validation types.
+Replay Sufficiency is a governed field for both HRV and LVT validations.
 
 | Score | Definition |
 |---|---|
-| Sufficient | Another analyst can reproduce the evaluation using only preserved evidence. |
+| Sufficient | Another analyst can reproduce the evaluation using only preserved evidence and governed records. |
 | Partial | Core reasoning is reproducible, but important supporting evidence or rationale is incomplete. |
 | Insufficient | The evaluation cannot be reproduced without external reconstruction or unstated assumptions. |
 | Unknown | Formal Replay Sufficiency Assessment has not yet been performed. |
 
-Replay Sufficiency is required for both HRV and LVT validations.
+Replay Sufficiency supports reproducibility. It does not determine whether the investment outcome was successful.
 
-## Portfolio Entries
+## Superseded Portfolio Entries Table
 
-| Validation ID | Validation Type (HRV / LVT) | Company | Thesis ID | Snapshot | Evidence Cutoff | Evaluation Date | Decision Gate | Replay Sufficiency Score | Falsification Triggers Defined | Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| HRV-001 | HRV | Meta Platforms | 6 | N/A | 2012-05-18 | 2012-05-18 | Existing Record | Unknown | Yes | Completed |
-| HRV-002 | HRV | Microsoft | TBD | N/A | 2022-01-15 | 2022-01-15 | Not Yet Initiated | Unknown | Not Yet Initiated | Planned |
-| LVT-001 | LVT | SpaceX | TBD | S001 | 2026-05-20 | TBD | Not Yet Initiated | Unknown | Not Yet Initiated | Planned |
+The previous `VALIDATION_PORTFOLIO.md` contained a static Portfolio Entries table.
 
-## Target Portfolio Coverage
+That table is superseded by the Canonical Validation Portfolio in this document.
 
-Build a governed validation set that expands beyond a single successful historical case and improves confidence in architecture durability.
+The prior table also contained an identifier discrepancy: it listed `HRV-001` as Meta Platforms, while governed validation notes identify `HRV-001` as the closed Microsoft historical replay.
 
-Current Coverage:
-[x] Software Growth Platform
-Validation Case 001
-Meta Platforms 2012
+This document resolves the discrepancy by:
 
-Remaining Planned Coverage:
-[ ] Structural disruption
-[ ] Thesis error
-[ ] Capital intensive industrial
-[ ] Financial services
-[ ] High regulation industry
-[ ] Cyclical commodity
-[ ] Consumer discretionary
+- preserving `HRV-001` as the historical closed Microsoft review cycle;
+- assigning active Microsoft longitudinal validation to `HRV-002`;
+- retaining Meta Platforms as an archived historical regression baseline rather than an HRV-001 record.
 
-Coverage Vector:
-- Primary stress target:
-- Secondary stress target:
-- Sector:
-- Business lifecycle:
-- Market regime:
-- Expected review horizons:
-- Evidence confidence:
-- Portfolio gaps reduced:
+Do not restore the superseded table unless it is rebuilt from governed records and reviewed under the Validation Record Schema.
 
 ## PVP-001 Boundary
 
@@ -134,3 +269,35 @@ Audit findings may serve as one evidence source for recurrence analysis, includi
 - 3 or more cases = Framework Analysis Finding
 
 Only findings with recurrence count of 3 or more are PVP-001 eligible.
+
+## Generation III Entry Requirements
+Generation III begins only after:
+
+- Hermes operational.
+- LVT-001 SpaceX Operational Validation complete.
+- HRV-002 Microsoft Longitudinal Validation complete.
+- Independent Audit Contract operational.
+- THEMIS specification complete.
+- Ready-for-Analyst workflow demonstrated.
+
+Validation completion shall be evaluated against this document.
+
+If HRV-002 completes without a Type A or Type C2 classification, Generation III may proceed only if Kodak remains retained as the named Outcome Attribution regression reference and the unresolved Type A/C2 coverage gap is explicitly documented as an accepted constitutional limitation.
+
+## Relationship to Governance
+This document is the governing authority for Athena validation strategy.
+
+Referenced by:
+
+- IMS Charter
+- Athena Bootstrap
+- Independent Audit Contract
+- GDR-001 — Validation Portfolio Rationalization
+- THEMIS Specification
+
+## Guiding Principle
+Athena validates constitutional capability.
+
+Companies are evidence.
+
+The architecture is the product.
