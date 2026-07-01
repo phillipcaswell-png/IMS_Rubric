@@ -65,3 +65,24 @@ performance. The broader research question, "Does the governed process
 produce better decisions than unstructured analysis?", remains an empirical
 question to be evaluated across the growing Validation Portfolio rather
 than inferred from a single case.
+
+### Reviewable Diffs for Newly Created Files
+When reviewing newly created files, a plain:
+
+```
+git diff -- <file>
+```
+may produce no output because the file is untracked.
+
+For governance reviews requiring evidence, use one of the following approaches:
+
+```
+git add -N <file>
+git diff -- <file>
+```
+or
+
+```
+git diff --no-index /dev/null <file>
+```
+This produces a reviewable diff without committing the file and shall be the standard procedure for future contract-establishment passes.
