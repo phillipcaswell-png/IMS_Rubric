@@ -979,6 +979,13 @@ def get_thesis_evidence_readiness(thesis_id):
     else:
         readiness_label = "Decision Activity Present"
 
+    assessment_guard_active = (
+        "limited evidence" in regime_state.lower()
+        and evidence_items_count == 0
+        and staged_evidence_count == 0
+        and pillar_evidence_links_count == 0
+    )
+
     return {
         "thesis_id": thesis_id_value,
         "evidence_items_count": evidence_items_count,
@@ -989,6 +996,7 @@ def get_thesis_evidence_readiness(thesis_id):
         "friction_observations_count": friction_observations_count,
         "readiness_label": readiness_label,
         "limited_evidence_mode": "limited evidence" in regime_state.lower(),
+        "assessment_guard_active": assessment_guard_active,
     }
 
 

@@ -1844,6 +1844,14 @@ def render_assessment_workspace(thesis_id, thesis, default_validation_review_dat
                 "Complete governed fields before decision recording."
             )
 
+        readiness = get_thesis_evidence_readiness(thesis_id)
+        if readiness["assessment_guard_active"]:
+            st.warning("Assessment is not evidence-ready. Preserve Unknown until evidence supports judgment.")
+            st.caption(
+                "This case has no promoted evidence, staged evidence, or pillar-evidence lineage. "
+                "Do not score this pillar unless you intentionally document why judgment is supportable despite limited evidence."
+            )
+
         st.subheader("Governed Assessment")
         score_key = f"assessment_workspace_score_{thesis_id}_{pillar_id}"
         rag_key = f"assessment_workspace_rag_{thesis_id}_{pillar_id}"
