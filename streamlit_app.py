@@ -55,6 +55,7 @@ from services import (
     record_decision,
     save_thesis_review,
     ensure_uswr_limited_evidence_case,
+    get_thesis_evidence_readiness,
     log_friction_observation,
     FRICTION_TYPE_OPTIONS,
     FRICTION_STATUS_OPTIONS,
@@ -3145,6 +3146,32 @@ def render_friction_logger(default_thesis_id=None, default_workflow_area="Worksp
                     )
 
 
+def render_evidence_readiness_signal(thesis_id):
+    """Render a compact read-only evidence readiness signal for workspace detail."""
+    readiness = get_thesis_evidence_readiness(thesis_id)
+    with st.container(border=True):
+        render_section_title("Evidence Readiness Signal", "Read-only evidence posture for the current thesis.")
+        if readiness["limited_evidence_mode"]:
+            st.warning("Unknown is acceptable. Do not score pillars until evidence supports judgment.")
+
+        label_tone = "neutral"
+        if readiness["readiness_label"] == "Observation Only — No Evidence Loaded":
+            label_tone = "warning"
+        elif readiness["readiness_label"] == "Evidence Present — Lineage Not Ready":
+            label_tone = "gold"
+        elif readiness["readiness_label"] == "Assessment Forming — No Decision":
+            label_tone = "neutral"
+        elif readiness["readiness_label"] == "Decision Activity Present":
+            label_tone = "success"
+
+        render_status_chip(readiness["readiness_label"], tone=label_tone)
+        st.caption(
+            "Evidence Items: {evidence_items_count} | Staged Evidence: {staged_evidence_count} | "
+            "Pillar Scores: {pillar_scores_count} | Pillar-Evidence Links: {pillar_evidence_links_count} | "
+            "Decision Logs: {decision_logs_count} | Friction Observations: {friction_observations_count}".format(**readiness)
+        )
+
+
 def _schema_table_support(table_name, required_columns=None):
     """Return structured table/column availability for runtime schema checks."""
     required = list(required_columns or [])
@@ -6187,6 +6214,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 st.metric(label, value)
 
         st.info(f"Next action: {workspace_clarity['next_action']}")
+        render_evidence_readiness_signal(int(thesis_id))
         render_friction_logger(default_thesis_id=int(thesis_id), default_workflow_area="Workspace Detail")
         
         st.divider()

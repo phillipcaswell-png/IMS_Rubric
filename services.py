@@ -912,6 +912,86 @@ def log_friction_observation(
     return payload
 
 
+def get_thesis_evidence_readiness(thesis_id):
+    """Return compact evidence readiness counts and label for a thesis."""
+    thesis_id_value = int(thesis_id)
+
+    thesis_df = fetch_dataframe(
+        "SELECT regime_state FROM theses WHERE id = ?",
+        (thesis_id_value,),
+    )
+    regime_state = ""
+    if not thesis_df.empty and pd.notna(thesis_df.iloc[0]["regime_state"]):
+        regime_state = str(thesis_df.iloc[0]["regime_state"]).strip()
+
+    evidence_items_count = int(
+        fetch_dataframe(
+            "SELECT COUNT(*) AS count FROM evidence_items WHERE thesis_id = ?",
+            (thesis_id_value,),
+        ).iloc[0]["count"]
+    )
+    staged_evidence_count = int(
+        fetch_dataframe(
+            "SELECT COUNT(*) AS count FROM evidence_staging WHERE thesis_id = ?",
+            (thesis_id_value,),
+        ).iloc[0]["count"]
+    )
+    pillar_scores_count = int(
+        fetch_dataframe(
+            "SELECT COUNT(*) AS count FROM pillar_scores WHERE thesis_id = ?",
+            (thesis_id_value,),
+        ).iloc[0]["count"]
+    )
+    pillar_evidence_links_count = int(
+        fetch_dataframe(
+            """
+            SELECT COUNT(*) AS count
+            FROM pillar_evidence_links pel
+            JOIN pillar_scores ps ON ps.id = pel.pillar_score_id
+            WHERE ps.thesis_id = ?
+            """,
+            (thesis_id_value,),
+        ).iloc[0]["count"]
+    )
+    decision_logs_count = int(
+        fetch_dataframe(
+            "SELECT COUNT(*) AS count FROM decision_logs WHERE thesis_id = ?",
+            (thesis_id_value,),
+        ).iloc[0]["count"]
+    )
+    friction_observations_count = int(
+        fetch_dataframe(
+            """
+            SELECT COUNT(*) AS count
+            FROM thesis_events
+            WHERE thesis_id = ? AND event_type = ?
+            """,
+            (thesis_id_value, EVENT_FRICTION_OBSERVATION_LOGGED),
+        ).iloc[0]["count"]
+    )
+
+    if evidence_items_count == 0 and staged_evidence_count == 0:
+        readiness_label = "Observation Only — No Evidence Loaded"
+    elif pillar_evidence_links_count == 0:
+        readiness_label = "Evidence Present — Lineage Not Ready"
+    elif decision_logs_count == 0:
+        readiness_label = "Assessment Forming — No Decision"
+    else:
+        readiness_label = "Decision Activity Present"
+
+    return {
+        "thesis_id": thesis_id_value,
+        "evidence_items_count": evidence_items_count,
+        "staged_evidence_count": staged_evidence_count,
+        "pillar_scores_count": pillar_scores_count,
+        "pillar_evidence_links_count": pillar_evidence_links_count,
+        "decision_logs_count": decision_logs_count,
+        "friction_observations_count": friction_observations_count,
+        "readiness_label": readiness_label,
+        "limited_evidence_mode": "limited evidence" in regime_state.lower(),
+    }
+
+
 def get_overview_metrics(thesis_id):
     """Get overview metrics for a thesis."""
     evidence_df = fetch_dataframe(
