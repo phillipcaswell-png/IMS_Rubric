@@ -2788,6 +2788,8 @@ def _is_primary_nav_active(label, current_view):
         return current_view in ["Workspace", "Thesis Workspace", "Thesis Detail"]
     if label == "History":
         return current_view in ["History", "Documentation"]
+    if label == "Microsoft HRV-002 Readiness":
+        return current_view == "Microsoft HRV-002 Readiness"
     if label == "Settings":
         return current_view == "Settings"
     return False
@@ -2809,6 +2811,9 @@ def _apply_primary_navigation(label):
     elif label == "History":
         st.session_state["current_view"] = "History"
         st.session_state["selected_thesis_id"] = None
+    elif label == "Microsoft HRV-002 Readiness":
+        st.session_state["current_view"] = "Microsoft HRV-002 Readiness"
+        st.session_state["selected_thesis_id"] = None
     elif label == "Settings":
         st.session_state["current_view"] = "Settings"
         st.session_state["selected_thesis_id"] = None
@@ -2816,7 +2821,7 @@ def _apply_primary_navigation(label):
 
 def render_sidebar_primary_navigation(current_view):
     """Render primary navigation controls."""
-    primary_nav_labels = ["Home", "Portfolio", "Workspace", "History", "Settings"]
+    primary_nav_labels = ["Home", "Portfolio", "Workspace", "History", "Microsoft HRV-002 Readiness", "Settings"]
     for nav_label in primary_nav_labels:
         button_type = "primary" if _is_primary_nav_active(nav_label, current_view) else "secondary"
         if st.button(nav_label, key=f"nav_{nav_label}", use_container_width=True, type=button_type):
@@ -2930,6 +2935,25 @@ AFFIRMATIVE_ACTIVE_STATUS_LABELS = {
 # as clean active HRV-002 execution until governance state is explicit.
 GOVERNANCE_ATTENTION_ONLY_THESIS_IDS = {14}
 
+MICROSOFT_READINESS_SOURCE_THESIS_ID = 14
+
+MICROSOFT_BUSINESS_PILLARS = [
+    ("B1", "Business Quality"),
+    ("B2", "Competitive Advantage"),
+    ("B3", "Revenue Quality"),
+    ("B4", "Financial Resilience"),
+    ("B5", "Execution Capability"),
+    ("B6", "Industry Position"),
+    ("B7", "Systems Importance"),
+]
+
+MICROSOFT_INVESTMENT_PILLARS = [
+    ("I1", "Valuation"),
+    ("I2", "Market Structure"),
+    ("I3", "Market Sentiment"),
+    ("I4", "Portfolio Contribution"),
+]
+
 
 def _to_int_thesis_id(thesis_id):
     try:
@@ -3026,6 +3050,419 @@ def build_governance_attention_message(row):
     if thesis_id_int == 14:
         return "Microsoft thesis_id=14 — Closure / identity ambiguity"
     return ""
+
+
+def _schema_table_support(table_name, required_columns=None):
+    """Return structured table/column availability for runtime schema checks."""
+    required = list(required_columns or [])
+    table_df = fetch_dataframe(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    )
+    table_available = not table_df.empty
+    if not table_available:
+        return {
+            "table": table_name,
+            "available": False,
+            "columns": [],
+            "required_columns": required,
+            "missing_columns": required,
+            "message": "Not available from current runtime schema.",
+        }
+
+    columns_df = fetch_dataframe(f"PRAGMA table_info({table_name})")
+    columns = columns_df["name"].astype(str).tolist() if not columns_df.empty and "name" in columns_df.columns else []
+    missing_columns = [col for col in required if col not in columns]
+    return {
+        "table": table_name,
+        "available": True,
+        "columns": columns,
+        "required_columns": required,
+        "missing_columns": missing_columns,
+        "message": "Available" if not missing_columns else "Not available from current runtime schema.",
+    }
+
+
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_year_text(value):
+    text = _display_text(value)
+    if not text:
+        return ""
+    try:
+        return pd.to_datetime(text, errors="coerce").strftime("%Y")
+    except Exception:
+        return ""
+
+
+def get_microsoft_identity_state():
+    """Build static identity state panel rows for HRV-001/HRV-002 framing."""
+    return pd.DataFrame(
+        [
+            {"Identity": "HRV-001", "State": "Preserved historical Microsoft review concept"},
+            {"Identity": "thesis_id=14", "State": "Ambiguous historical Microsoft artifact (not active work)"},
+            {"Identity": "HRV-002", "State": "Draft successor concept, not yet active"},
+            {"Identity": "Active HRV-002 thesis_id", "State": "Not created"},
+        ]
+    )
+
+
+def get_microsoft_runtime_snapshot(thesis_id=MICROSOFT_READINESS_SOURCE_THESIS_ID):
+    """Return read-only runtime snapshot for Microsoft source thesis context."""
+    unavailable_text = "Not available from current runtime schema."
+    snapshot = {
+        "thesis_id": _safe_int(thesis_id),
+        "company_name": unavailable_text,
+        "ticker": unavailable_text,
+        "status": unavailable_text,
+        "created_at": unavailable_text,
+        "decision_log_count": unavailable_text,
+        "thesis_review_count": unavailable_text,
+        "thesis_event_count": unavailable_text,
+        "latest_event_timestamp": unavailable_text,
+        "decision_recommendation": unavailable_text,
+    }
+
+    theses_support = _schema_table_support("theses", ["id", "company_name", "ticker", "status", "created_at"])
+    decision_logs_support = _schema_table_support("decision_logs", ["id", "thesis_id", "recommendation", "created_at"])
+    thesis_reviews_support = _schema_table_support("thesis_reviews", ["thesis_id"])
+    thesis_events_support = _schema_table_support("thesis_events", ["thesis_id", "created_at"])
+
+    if theses_support["available"] and not theses_support["missing_columns"]:
+        thesis_df = fetch_dataframe(
+            "SELECT id, company_name, ticker, status, created_at FROM theses WHERE id = ?",
+            (thesis_id,),
+        )
+        if not thesis_df.empty:
+            base = thesis_df.iloc[0]
+            snapshot.update(
+                {
+                    "thesis_id": _safe_int(base.get("id")),
+                    "company_name": format_display_value(base.get("company_name"), fallback="—"),
+                    "ticker": format_display_value(base.get("ticker"), fallback="—"),
+                    "status": format_display_value(base.get("status"), fallback="—"),
+                    "created_at": format_display_value(base.get("created_at"), fallback="—"),
+                }
+            )
+        else:
+            snapshot.update(
+                {
+                    "company_name": "thesis_id=14 not found in theses.",
+                    "ticker": "—",
+                    "status": "—",
+                    "created_at": "—",
+                }
+            )
+
+    if decision_logs_support["available"] and not decision_logs_support["missing_columns"]:
+        decision_count_df = fetch_dataframe(
+            "SELECT COUNT(*) AS decision_count FROM decision_logs WHERE thesis_id = ?",
+            (thesis_id,),
+        )
+        decision_latest_df = fetch_dataframe(
+            """
+            SELECT recommendation
+            FROM decision_logs
+            WHERE thesis_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (thesis_id,),
+        )
+        snapshot["decision_log_count"] = _safe_int(decision_count_df.iloc[0]["decision_count"]) if not decision_count_df.empty else 0
+        snapshot["decision_recommendation"] = (
+            format_display_value(decision_latest_df.iloc[0].get("recommendation"), fallback="—")
+            if not decision_latest_df.empty
+            else "—"
+        )
+
+    if thesis_reviews_support["available"] and not thesis_reviews_support["missing_columns"]:
+        review_count_df = fetch_dataframe(
+            "SELECT COUNT(*) AS review_count FROM thesis_reviews WHERE thesis_id = ?",
+            (thesis_id,),
+        )
+        snapshot["thesis_review_count"] = _safe_int(review_count_df.iloc[0]["review_count"]) if not review_count_df.empty else 0
+
+    if thesis_events_support["available"] and not thesis_events_support["missing_columns"]:
+        event_stats_df = fetch_dataframe(
+            "SELECT COUNT(*) AS event_count, MAX(created_at) AS latest_event_at FROM thesis_events WHERE thesis_id = ?",
+            (thesis_id,),
+        )
+        snapshot["thesis_event_count"] = _safe_int(event_stats_df.iloc[0]["event_count"]) if not event_stats_df.empty else 0
+        snapshot["latest_event_timestamp"] = (
+            format_display_value(event_stats_df.iloc[0].get("latest_event_at"), fallback="—")
+            if not event_stats_df.empty
+            else "—"
+        )
+
+    return snapshot
+
+
+def get_microsoft_evidence_pipeline_status(thesis_id=MICROSOFT_READINESS_SOURCE_THESIS_ID):
+    """Return schema-aware evidence pipeline counts for Microsoft readiness board."""
+    support = {
+        "evidence_staging": _schema_table_support("evidence_staging", ["thesis_id", "intake_status", "review_date", "promoted_at"]),
+        "evidence_items": _schema_table_support("evidence_items", ["thesis_id"]),
+        "evidence_observations": _schema_table_support("evidence_observations", ["id", "created_at"]),
+        "thesis_events": _schema_table_support("thesis_events", ["thesis_id", "event_type"]),
+    }
+
+    rows = []
+
+    if support["evidence_staging"]["available"] and not support["evidence_staging"]["missing_columns"]:
+        staging_df = fetch_dataframe(
+            """
+            SELECT
+                SUM(CASE WHEN intake_status = 'Pending' THEN 1 ELSE 0 END) AS staged_count,
+                SUM(CASE WHEN review_date IS NOT NULL AND TRIM(review_date) <> '' THEN 1 ELSE 0 END) AS reviewed_count,
+                SUM(CASE WHEN promoted_at IS NOT NULL AND TRIM(promoted_at) <> '' THEN 1 ELSE 0 END) AS promoted_count
+            FROM evidence_staging
+            WHERE thesis_id = ?
+            """,
+            (thesis_id,),
+        )
+        staging_row = staging_df.iloc[0] if not staging_df.empty else {}
+        rows.append({"Metric": "Evidence staged", "Value": _safe_int(staging_row.get("staged_count")), "Source": "evidence_staging"})
+        rows.append({"Metric": "Evidence reviewed", "Value": _safe_int(staging_row.get("reviewed_count")), "Source": "evidence_staging"})
+        rows.append({"Metric": "Evidence promoted", "Value": _safe_int(staging_row.get("promoted_count")), "Source": "evidence_staging"})
+    elif support["thesis_events"]["available"] and not support["thesis_events"]["missing_columns"]:
+        event_df = fetch_dataframe(
+            """
+            SELECT
+                SUM(CASE WHEN event_type = 'Evidence Staged' THEN 1 ELSE 0 END) AS staged_count,
+                SUM(CASE WHEN event_type = 'Evidence Reviewed' THEN 1 ELSE 0 END) AS reviewed_count,
+                SUM(CASE WHEN event_type = 'Evidence Promoted' THEN 1 ELSE 0 END) AS promoted_count
+            FROM thesis_events
+            WHERE thesis_id = ?
+            """,
+            (thesis_id,),
+        )
+        event_row = event_df.iloc[0] if not event_df.empty else {}
+        rows.append({"Metric": "Evidence staged", "Value": _safe_int(event_row.get("staged_count")), "Source": "Derived from thesis_events"})
+        rows.append({"Metric": "Evidence reviewed", "Value": _safe_int(event_row.get("reviewed_count")), "Source": "Derived from thesis_events"})
+        rows.append({"Metric": "Evidence promoted", "Value": _safe_int(event_row.get("promoted_count")), "Source": "Derived from thesis_events"})
+    else:
+        rows.append({"Metric": "Evidence staged", "Value": "Not available from current runtime schema.", "Source": "Unavailable"})
+        rows.append({"Metric": "Evidence reviewed", "Value": "Not available from current runtime schema.", "Source": "Unavailable"})
+        rows.append({"Metric": "Evidence promoted", "Value": "Not available from current runtime schema.", "Source": "Unavailable"})
+
+    if support["evidence_items"]["available"] and not support["evidence_items"]["missing_columns"]:
+        evidence_items_df = fetch_dataframe(
+            "SELECT COUNT(*) AS item_count FROM evidence_items WHERE thesis_id = ?",
+            (thesis_id,),
+        )
+        rows.append({"Metric": "Evidence added/attached", "Value": _safe_int(evidence_items_df.iloc[0].get("item_count")) if not evidence_items_df.empty else 0, "Source": "evidence_items"})
+    else:
+        rows.append({"Metric": "Evidence added/attached", "Value": "Not available from current runtime schema.", "Source": "Unavailable"})
+
+    if support["thesis_events"]["available"] and not support["thesis_events"]["missing_columns"]:
+        observation_events_df = fetch_dataframe(
+            """
+            SELECT
+                SUM(CASE WHEN event_type = 'Evidence Observation Created' THEN 1 ELSE 0 END) AS created_count,
+                SUM(CASE WHEN event_type = 'Evidence Observation Updated' THEN 1 ELSE 0 END) AS updated_count
+            FROM thesis_events
+            WHERE thesis_id = ?
+            """,
+            (thesis_id,),
+        )
+        obs_row = observation_events_df.iloc[0] if not observation_events_df.empty else {}
+        rows.append({"Metric": "Evidence observations created", "Value": _safe_int(obs_row.get("created_count")), "Source": "Derived from thesis_events"})
+        rows.append({"Metric": "Evidence observations updated", "Value": _safe_int(obs_row.get("updated_count")), "Source": "Derived from thesis_events"})
+    else:
+        rows.append({"Metric": "Evidence observations created", "Value": "Not available from current runtime schema.", "Source": "Unavailable"})
+        rows.append({"Metric": "Evidence observations updated", "Value": "Not available from current runtime schema.", "Source": "Unavailable"})
+
+    return pd.DataFrame(rows), support
+
+
+def get_microsoft_pillar_coverage_matrix(thesis_id=MICROSOFT_READINESS_SOURCE_THESIS_ID):
+    """Return pillar-level coverage with explicit Not available markers when schema is missing."""
+    score_support = _schema_table_support("pillar_scores", ["thesis_id", "pillar_id", "pillar_name", "score_rationale", "inference", "judgment"])
+    obs_support = _schema_table_support("evidence_observations", ["evidence_item_id", "pillar_id", "id"])
+    items_support = _schema_table_support("evidence_items", ["id", "thesis_id"])
+    links_support = _schema_table_support("pillar_evidence_links", ["pillar_score_id", "evidence_item_id"])
+
+    evidence_link_verification_available = (
+        links_support["available"]
+        and not links_support["missing_columns"]
+        and score_support["available"]
+        and not score_support["missing_columns"]
+    )
+    observation_verification_available = (
+        obs_support["available"]
+        and not obs_support["missing_columns"]
+        and items_support["available"]
+        and not items_support["missing_columns"]
+    )
+    direct_verification_available = (
+        evidence_link_verification_available
+        or observation_verification_available
+    )
+
+    score_df = pd.DataFrame()
+    if score_support["available"] and not score_support["missing_columns"]:
+        score_df = fetch_dataframe(
+            """
+            SELECT
+                pillar_id,
+                MAX(COALESCE(NULLIF(TRIM(pillar_name), ''), '')) AS pillar_name,
+                COUNT(*) AS score_rows,
+                MAX(CASE WHEN COALESCE(NULLIF(TRIM(score_rationale), ''), NULLIF(TRIM(inference), ''), NULLIF(TRIM(judgment), '')) IS NOT NULL THEN 1 ELSE 0 END) AS has_assessment_narrative
+            FROM pillar_scores
+            WHERE thesis_id = ?
+            GROUP BY pillar_id
+            """,
+            (thesis_id,),
+        )
+
+    observation_df = pd.DataFrame()
+    if observation_verification_available:
+        observation_df = fetch_dataframe(
+            """
+            SELECT eo.pillar_id, COUNT(*) AS observation_count
+            FROM evidence_observations eo
+            JOIN evidence_items ei ON ei.id = eo.evidence_item_id
+            WHERE ei.thesis_id = ?
+            GROUP BY eo.pillar_id
+            """,
+            (thesis_id,),
+        )
+
+    evidence_link_df = pd.DataFrame()
+    if evidence_link_verification_available:
+        evidence_link_df = fetch_dataframe(
+            """
+            SELECT ps.pillar_id, COUNT(DISTINCT pel.evidence_item_id) AS evidence_count
+            FROM pillar_evidence_links pel
+            JOIN pillar_scores ps ON ps.id = pel.pillar_score_id
+            WHERE ps.thesis_id = ?
+            GROUP BY ps.pillar_id
+            """,
+            (thesis_id,),
+        )
+
+    score_map = {str(row["pillar_id"]): row for _, row in score_df.iterrows()} if not score_df.empty else {}
+    obs_map = {str(row["pillar_id"]): _safe_int(row.get("observation_count")) for _, row in observation_df.iterrows()} if not observation_df.empty else {}
+    evidence_map = {str(row["pillar_id"]): _safe_int(row.get("evidence_count")) for _, row in evidence_link_df.iterrows()} if not evidence_link_df.empty else {}
+
+    matrix_rows = []
+    for pillar_id, default_name in MICROSOFT_BUSINESS_PILLARS + MICROSOFT_INVESTMENT_PILLARS:
+        score_row = score_map.get(pillar_id)
+        score_present = bool(score_row is not None and _safe_int(score_row.get("score_rows")) > 0)
+        narrative_present = bool(score_row is not None and _safe_int(score_row.get("has_assessment_narrative")) == 1)
+        evidence_count = (
+            evidence_map.get(pillar_id, 0)
+            if evidence_link_verification_available
+            else None
+        )
+        observation_count = (
+            obs_map.get(pillar_id, 0)
+            if observation_verification_available
+            else None
+        )
+
+        direct_support_count = (evidence_count or 0) + (observation_count or 0)
+
+        if not direct_verification_available:
+            basis = "Unavailable due to schema"
+        elif direct_support_count > 0:
+            basis = "Direct evidence metadata"
+        elif score_present or narrative_present:
+            basis = "Assessment data only"
+        else:
+            basis = "No verifiable runtime support"
+
+        if not direct_verification_available:
+            status = "Needs Review"
+        elif direct_support_count > 0 and score_present and narrative_present:
+            status = "Covered"
+        elif direct_support_count > 0:
+            status = "Partial"
+        elif score_present or narrative_present:
+            status = "Needs Review"
+        else:
+            status = "Missing"
+
+        matrix_rows.append(
+            {
+                "pillar_id": pillar_id,
+                "pillar_name": format_display_value(score_row.get("pillar_name"), fallback=default_name) if score_row is not None else default_name,
+                "evidence_count": evidence_count if evidence_count is not None else "Not available",
+                "observation_count": observation_count if observation_count is not None else "Not available",
+                "pillar_score_present": "Yes" if score_present else "No",
+                "assessment_narrative_present": "Yes" if narrative_present else "No" if score_present else "Not available",
+                "basis": basis,
+                "status": status,
+            }
+        )
+
+    support = {
+        "pillar_scores": score_support,
+        "evidence_observations": obs_support,
+        "evidence_items": items_support,
+        "pillar_evidence_links": links_support,
+    }
+    return pd.DataFrame(matrix_rows), support
+
+
+def get_microsoft_period_coverage(thesis_id=MICROSOFT_READINESS_SOURCE_THESIS_ID):
+    """Return year/period coverage with explicit distinction of metadata types."""
+    evidence_support = _schema_table_support("evidence_items", ["thesis_id", "publication_date", "created_at"])
+    decision_support = _schema_table_support("decision_logs", ["thesis_id", "review_date", "created_at"])
+
+    evidence_period_years = []
+    ingestion_years = []
+    if evidence_support["available"] and not evidence_support["missing_columns"]:
+        evidence_period_df = fetch_dataframe(
+            "SELECT publication_date, created_at FROM evidence_items WHERE thesis_id = ?",
+            (thesis_id,),
+        )
+        if not evidence_period_df.empty:
+            evidence_period_years = sorted({year for year in evidence_period_df["publication_date"].apply(_as_year_text).tolist() if year})
+            ingestion_years = sorted({year for year in evidence_period_df["created_at"].apply(_as_year_text).tolist() if year})
+
+    review_years = []
+    decision_years = []
+    if decision_support["available"] and not decision_support["missing_columns"]:
+        decision_df = fetch_dataframe(
+            "SELECT review_date, created_at FROM decision_logs WHERE thesis_id = ?",
+            (thesis_id,),
+        )
+        if not decision_df.empty:
+            review_years = sorted({year for year in decision_df["review_date"].apply(_as_year_text).tolist() if year})
+            decision_years = sorted({year for year in decision_df["created_at"].apply(_as_year_text).tolist() if year})
+
+    can_verify_year_coverage = bool(evidence_period_years)
+    period_rows = [
+        {
+            "Category": "Evidence period / filing period",
+            "Years": ", ".join(evidence_period_years) if evidence_period_years else "Year coverage cannot be verified from current runtime metadata.",
+            "Notes": "Derived from evidence_items.publication_date when available.",
+        },
+        {
+            "Category": "Athena ingestion timestamp",
+            "Years": ", ".join(ingestion_years) if ingestion_years else "Not available from current runtime schema.",
+            "Notes": "Derived from evidence_items.created_at; ingestion time only.",
+        },
+        {
+            "Category": "Review date",
+            "Years": ", ".join(review_years) if review_years else "Not available from current runtime schema.",
+            "Notes": "Derived from decision_logs.review_date.",
+        },
+        {
+            "Category": "Decision date",
+            "Years": ", ".join(decision_years) if decision_years else "Not available from current runtime schema.",
+            "Notes": "Derived from decision_logs.created_at.",
+        },
+    ]
+
+    return pd.DataFrame(period_rows), can_verify_year_coverage, {"evidence_items": evidence_support, "decision_logs": decision_support}
 
 
 def derive_asset_status_label(company_name, ticker, persisted_status, thesis_id=None, fallback="—"):
@@ -4486,6 +4923,129 @@ elif st.session_state['current_view'] == 'History':
         st.info("No lessons learned captured yet.")
     else:
         st.dataframe(lessons_df, use_container_width=True)
+
+elif st.session_state['current_view'] == 'Microsoft HRV-002 Readiness':
+    render_page_header(
+        "Microsoft HRV-002 Readiness Board",
+        "Read-only verification board for Microsoft longitudinal validation readiness.",
+        eyebrow="Governance",
+    )
+
+    st.warning(
+        "HRV-002 successor identity is drafted but not ratified. "
+        "thesis_id=14 remains preserved as an ambiguous historical artifact and is not active work."
+    )
+
+    render_section_title("Identity State Panel")
+    identity_state_df = get_microsoft_identity_state()
+    st.dataframe(identity_state_df, use_container_width=True, hide_index=True)
+
+    render_section_title("Runtime DB Snapshot")
+    snapshot = get_microsoft_runtime_snapshot()
+    snapshot_df = pd.DataFrame(
+        [
+            {"Field": "company_name", "Value": snapshot["company_name"]},
+            {"Field": "ticker", "Value": snapshot["ticker"]},
+            {"Field": "status", "Value": snapshot["status"]},
+            {"Field": "created_at", "Value": snapshot["created_at"]},
+            {"Field": "decision log count", "Value": snapshot["decision_log_count"]},
+            {"Field": "thesis review count", "Value": snapshot["thesis_review_count"]},
+            {"Field": "thesis event count", "Value": snapshot["thesis_event_count"]},
+            {"Field": "latest event timestamp", "Value": snapshot["latest_event_timestamp"]},
+            {"Field": "decision recommendation", "Value": snapshot["decision_recommendation"]},
+        ]
+    )
+    st.dataframe(snapshot_df, use_container_width=True, hide_index=True)
+
+    render_section_title("Evidence Pipeline Status")
+    pipeline_df, pipeline_support = get_microsoft_evidence_pipeline_status()
+    st.dataframe(pipeline_df, use_container_width=True, hide_index=True)
+    with st.expander("Schema support details", expanded=False):
+        support_rows = []
+        for table_name, support_payload in pipeline_support.items():
+            support_rows.append(
+                {
+                    "Table": table_name,
+                    "Available": "Yes" if support_payload.get("available") else "No",
+                    "Missing Columns": ", ".join(support_payload.get("missing_columns", [])) if support_payload.get("missing_columns") else "—",
+                    "Message": support_payload.get("message"),
+                }
+            )
+        st.dataframe(pd.DataFrame(support_rows), use_container_width=True, hide_index=True)
+
+    render_section_title("Pillar Coverage Matrix")
+    pillar_matrix_df, pillar_support = get_microsoft_pillar_coverage_matrix()
+    st.dataframe(pillar_matrix_df, use_container_width=True, hide_index=True)
+    with st.expander("Pillar schema support details", expanded=False):
+        support_rows = []
+        for table_name, support_payload in pillar_support.items():
+            support_rows.append(
+                {
+                    "Table": table_name,
+                    "Available": "Yes" if support_payload.get("available") else "No",
+                    "Missing Columns": ", ".join(support_payload.get("missing_columns", [])) if support_payload.get("missing_columns") else "—",
+                    "Message": support_payload.get("message"),
+                }
+            )
+        st.dataframe(pd.DataFrame(support_rows), use_container_width=True, hide_index=True)
+
+    render_section_title("Year / Period Coverage")
+    period_df, can_verify_period_years, period_support = get_microsoft_period_coverage()
+    st.dataframe(period_df, use_container_width=True, hide_index=True)
+    if not can_verify_period_years:
+        st.info("Year coverage cannot be verified from current runtime metadata.")
+    with st.expander("Period schema support details", expanded=False):
+        support_rows = []
+        for table_name, support_payload in period_support.items():
+            support_rows.append(
+                {
+                    "Table": table_name,
+                    "Available": "Yes" if support_payload.get("available") else "No",
+                    "Missing Columns": ", ".join(support_payload.get("missing_columns", [])) if support_payload.get("missing_columns") else "—",
+                    "Message": support_payload.get("message"),
+                }
+            )
+        st.dataframe(pd.DataFrame(support_rows), use_container_width=True, hide_index=True)
+
+    render_section_title("Readiness Summary")
+    covered_count = int((pillar_matrix_df["status"] == "Covered").sum()) if not pillar_matrix_df.empty else 0
+    partial_count = int((pillar_matrix_df["status"] == "Partial").sum()) if not pillar_matrix_df.empty else 0
+    missing_count = int((pillar_matrix_df["status"] == "Missing").sum()) if not pillar_matrix_df.empty else 0
+    needs_review_count = int((pillar_matrix_df["status"] == "Needs Review").sum()) if not pillar_matrix_df.empty else 0
+
+    render_summary_row(
+        "Readiness Overview",
+        "Microsoft source-context readiness indicators (read-only).",
+        [
+            {"label": "Ready for successor creation", "value": "Blocked"},
+            {"label": "Covered Pillars", "value": covered_count},
+            {"label": "Partial Pillars", "value": partial_count},
+            {"label": "Missing/Needs Review", "value": missing_count + needs_review_count},
+        ],
+    )
+
+    st.markdown(
+        """
+        - **Blocker:** HRV-002 successor identity not ratified and no active successor thesis exists.
+        - **Data readiness:** Evidence and pillar coverage are summarized above for source-context verification only.
+        - **Next action:** Ratify/create HRV-002 successor identity, then map verified Microsoft evidence into successor workflow.
+        """
+    )
+
+    render_section_title("No Mutation Guarantee")
+    st.markdown(
+        """
+        - This board is read-only.
+        - No inserts.
+        - No updates.
+        - No deletes.
+        - No automatic status changes.
+        - No automatic promotion.
+        - No automatic scoring.
+        """
+    )
+
+    render_athena_footer()
 
 elif st.session_state['current_view'] == 'Hermes Workflow Inbox':
     st.header("📬 Hermes — Workflow Inbox")
