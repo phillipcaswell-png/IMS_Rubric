@@ -599,6 +599,8 @@ EVENT_EVIDENCE_ARCHIVED = "Evidence Archived"
 EVENT_EVIDENCE_OBSERVATION_CREATED = "Evidence Observation Created"
 EVENT_EVIDENCE_OBSERVATION_UPDATED = "Evidence Observation Updated"
 EVENT_THEIA_EXTRACTION_INVOKED = "Theia Extraction Invoked"
+EVENT_USWR_PROGRESS_MODE_ENABLED = "USWR Progress Mode Enabled"
+EVENT_FRICTION_OBSERVATION_LOGGED = "Friction Observation Logged"
 
 INTAKE_STATUS_PENDING = "Pending"
 INTAKE_STATUS_REVIEWED = "Reviewed"
@@ -680,6 +682,30 @@ HERMES_PRIORITY_CRITICAL = 1
 HERMES_PRIORITY_HIGH = 2
 HERMES_PRIORITY_MEDIUM = 3
 HERMES_PRIORITY_LOW = 4
+
+FRICTION_TYPE_OPTIONS = [
+    "repetitive work",
+    "duplicated effort",
+    "unnecessary navigation",
+    "missing automation",
+    "governance overhead",
+    "missing context",
+    "evidence acquisition friction",
+    "evidence linkage friction",
+    "assessment friction",
+    "decision gate friction",
+    "replay friction",
+    "other",
+]
+
+FRICTION_STATUS_OPTIONS = [
+    "open",
+    "reviewed",
+    "converted_to_backlog",
+    "dismissed",
+]
+
+HERMES_REDUCTION_OPTIONS = ["yes", "no", "unknown"]
 
 
 def create_thesis(
@@ -764,6 +790,126 @@ def create_thesis(
             context={"error_type": type(exc).__name__},
         )
         raise
+
+
+def get_thesis_id_by_ticker(ticker):
+    """Return latest thesis id for a ticker, or None when no match exists."""
+    ticker_value = str(ticker or "").strip().upper()
+    if not ticker_value:
+        return None
+
+    thesis_df = fetch_dataframe(
+        """
+        SELECT id
+        FROM theses
+        WHERE UPPER(COALESCE(ticker, '')) = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (ticker_value,),
+    )
+    if thesis_df.empty:
+        return None
+    return int(thesis_df.iloc[0]["id"])
+
+
+def ensure_uswr_limited_evidence_case(created_by="System"):
+    """Create USWR limited-evidence scaffold if missing; else return existing thesis id."""
+    existing_id = get_thesis_id_by_ticker("USWR")
+    if existing_id is not None:
+        return {
+            "thesis_id": existing_id,
+            "created": False,
+            "ticker": "USWR",
+        }
+
+    thesis_id = create_thesis(
+        company_name="USWR Limited Evidence Validation Case",
+        ticker="USWR",
+        decision_question=(
+            "Limited-evidence validation case to observe analyst workflow discipline under scarce "
+            "information without forcing confidence or investment conclusion."
+        ),
+        account_type=None,
+        portfolio_role=None,
+        primary_horizon=None,
+        regime_state="Limited Evidence / Observation Mode",
+        reviewer=created_by,
+        status="Draft",
+        drl=None,
+        validation_mode_enabled=False,
+        evidence_cutoff_date=None,
+    )
+
+    log_event(
+        thesis_id=thesis_id,
+        event_type=EVENT_USWR_PROGRESS_MODE_ENABLED,
+        description=(
+            "USWR limited-evidence progress mode enabled. Operational observation only; "
+            "no forced confidence, no automatic scoring, and no replay authority implied."
+        ),
+        created_by=created_by,
+        version="1.0",
+    )
+
+    return {
+        "thesis_id": int(thesis_id),
+        "created": True,
+        "ticker": "USWR",
+    }
+
+
+def log_friction_observation(
+    workflow_area,
+    friction_type,
+    short_description,
+    analyst_impact,
+    hermes_reduction_potential="unknown",
+    status="open",
+    thesis_id=None,
+    ticker=None,
+    created_by="Analyst",
+):
+    """Persist lightweight friction observations using existing thesis/audit event tables."""
+    friction_type_value = str(friction_type or "").strip().lower()
+    if friction_type_value not in FRICTION_TYPE_OPTIONS:
+        raise ValueError(f"Unsupported friction_type: {friction_type}")
+
+    status_value = str(status or "").strip().lower()
+    if status_value not in FRICTION_STATUS_OPTIONS:
+        raise ValueError(f"Unsupported status: {status}")
+
+    hermes_value = str(hermes_reduction_potential or "").strip().lower()
+    if hermes_value not in HERMES_REDUCTION_OPTIONS:
+        raise ValueError(f"Unsupported hermes_reduction_potential: {hermes_reduction_potential}")
+
+    thesis_id_value = int(thesis_id) if thesis_id is not None else None
+    ticker_value = str(ticker or "").strip().upper() if ticker else ""
+    if thesis_id_value is not None and not ticker_value:
+        ticker_df = fetch_dataframe("SELECT ticker FROM theses WHERE id = ?", (thesis_id_value,))
+        if not ticker_df.empty and pd.notna(ticker_df.iloc[0]["ticker"]):
+            ticker_value = str(ticker_df.iloc[0]["ticker"]).strip().upper()
+
+    payload = {
+        "timestamp": datetime.now().isoformat(),
+        "thesis_id": thesis_id_value,
+        "ticker": ticker_value or None,
+        "workflow_area": str(workflow_area or "").strip(),
+        "friction_type": friction_type_value,
+        "short_description": str(short_description or "").strip(),
+        "analyst_impact": str(analyst_impact or "").strip(),
+        "hermes_reduction_potential": hermes_value,
+        "status": status_value,
+    }
+
+    log_event(
+        thesis_id=thesis_id_value,
+        event_type=EVENT_FRICTION_OBSERVATION_LOGGED,
+        description=f"Friction observation logged: {json.dumps(payload, sort_keys=True)}",
+        created_by=created_by,
+        version="1.0",
+    )
+    return payload
 
 
 def get_overview_metrics(thesis_id):

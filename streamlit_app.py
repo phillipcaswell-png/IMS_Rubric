@@ -54,6 +54,11 @@ from services import (
     save_pillar_score,
     record_decision,
     save_thesis_review,
+    ensure_uswr_limited_evidence_case,
+    log_friction_observation,
+    FRICTION_TYPE_OPTIONS,
+    FRICTION_STATUS_OPTIONS,
+    HERMES_REDUCTION_OPTIONS,
 )
 
 try:
@@ -2928,6 +2933,28 @@ UNCLASSIFIED_DATA_HYGIENE_THESIS_IDS = {1, 3, 4, 5, 6, 9, 10, 11, 12, 13}
 # Explicitly allowed operational records in current runtime data.
 # Future ratified identities can be added through governed process.
 ALLOWED_ACTIVE_OPERATIONAL_THESIS_IDS = set()
+PROGRESS_MODE_ACTIVE_TICKERS = {"USWR"}
+
+
+def _load_progress_mode_active_operational_thesis_ids():
+    ids = set(ALLOWED_ACTIVE_OPERATIONAL_THESIS_IDS)
+    try:
+        if not PROGRESS_MODE_ACTIVE_TICKERS:
+            return ids
+        placeholders = ",".join(["?"] * len(PROGRESS_MODE_ACTIVE_TICKERS))
+        ticker_df = fetch_dataframe(
+            f"SELECT id FROM theses WHERE UPPER(COALESCE(ticker, '')) IN ({placeholders})",
+            tuple(sorted(PROGRESS_MODE_ACTIVE_TICKERS)),
+        )
+        if not ticker_df.empty:
+            ids.update(ticker_df["id"].astype(int).tolist())
+    except Exception:
+        # Keep routing resilient if DB is unavailable during render startup.
+        pass
+    return ids
+
+
+ACTIVE_OPERATIONAL_THESIS_IDS = _load_progress_mode_active_operational_thesis_ids()
 
 AFFIRMATIVE_ACTIVE_STATUS_LABELS = {
     "active",
@@ -3001,7 +3028,7 @@ def has_affirmative_active_signal(row):
     if status_text in AFFIRMATIVE_ACTIVE_STATUS_LABELS:
         return True
 
-    return thesis_id_int in ALLOWED_ACTIVE_OPERATIONAL_THESIS_IDS
+    return thesis_id_int in ACTIVE_OPERATIONAL_THESIS_IDS
 
 
 def is_active_operational_work(row):
@@ -3056,6 +3083,66 @@ def build_governance_attention_message(row):
     if thesis_id_int == 14:
         return "Microsoft thesis_id=14 — Closure / identity ambiguity"
     return ""
+
+
+def render_friction_logger(default_thesis_id=None, default_workflow_area="Workspace"):
+    """Render a minimal friction log form that writes to existing thesis/audit events."""
+    with st.expander("Log Friction", expanded=False):
+        thesis_options_df = fetch_dataframe(
+            "SELECT id, company_name, ticker FROM theses ORDER BY company_name ASC"
+        )
+        thesis_options = ["None"]
+        thesis_label_map = {"None": None}
+        for _, thesis_row in thesis_options_df.iterrows():
+            tid = int(thesis_row["id"])
+            ticker = str(thesis_row["ticker"]).strip().upper() if pd.notna(thesis_row["ticker"]) else ""
+            label = f"{tid} — {thesis_row['company_name']} ({ticker or 'N/A'})"
+            thesis_options.append(label)
+            thesis_label_map[label] = tid
+
+        default_label = "None"
+        if default_thesis_id is not None:
+            for option_label, option_value in thesis_label_map.items():
+                if option_value == int(default_thesis_id):
+                    default_label = option_label
+                    break
+
+        with st.form(f"friction_log_form_{default_workflow_area}_{default_thesis_id}"):
+            selected_label = st.selectbox(
+                "Thesis Context",
+                options=thesis_options,
+                index=thesis_options.index(default_label) if default_label in thesis_options else 0,
+                help="Optional thesis association for this friction observation.",
+            )
+            workflow_area = st.text_input("Workflow Area", value=default_workflow_area)
+            friction_type = st.selectbox("Friction Type", options=FRICTION_TYPE_OPTIONS)
+            short_description = st.text_input("Short Description")
+            analyst_impact = st.text_area("Analyst Impact", height=80)
+            hermes_flag = st.selectbox("Could Hermes eventually reduce this?", options=HERMES_REDUCTION_OPTIONS)
+            friction_status = st.selectbox("Status", options=FRICTION_STATUS_OPTIONS, index=0)
+            submitted = st.form_submit_button("Record Friction", use_container_width=True)
+
+            if submitted:
+                if not short_description.strip():
+                    st.error("Short description is required.")
+                elif not analyst_impact.strip():
+                    st.error("Analyst impact is required.")
+                else:
+                    selected_thesis_id = thesis_label_map.get(selected_label)
+                    payload = log_friction_observation(
+                        workflow_area=workflow_area,
+                        friction_type=friction_type,
+                        short_description=short_description,
+                        analyst_impact=analyst_impact,
+                        hermes_reduction_potential=hermes_flag,
+                        status=friction_status,
+                        thesis_id=selected_thesis_id,
+                        created_by="Phillip",
+                    )
+                    st.success(
+                        "Friction recorded: "
+                        f"{payload.get('friction_type')} ({payload.get('status')})"
+                    )
 
 
 def _schema_table_support(table_name, required_columns=None):
@@ -4980,6 +5067,20 @@ elif st.session_state['current_view'] == 'Microsoft HRV-002 Readiness':
         "HRV-002 successor identity is drafted but not ratified. "
         "thesis_id=14 remains preserved as an ambiguous historical artifact and is not active work."
     )
+    st.error(
+        "HRV-002 replay is blocked and not authorized. HRV-001 remains closed and may not be reused. "
+        "No replay execution may begin until a governed HRV-002 successor identity package is implemented."
+    )
+
+    st.markdown(
+        """
+        - **Blocked state:** Microsoft HRV-002 is blocked.
+        - **Source-context protection:** thesis_id=14 remains historical/source-context only.
+        - **HRV-001 protection:** HRV-001 stays closed and is never reused.
+        - **Missing blockers:** explicit HRV-002 runtime identity; pillar-to-evidence linkage; outcome attribution readiness (`thesis_reviews`); replay freeze authority.
+        - **Next governance step:** implement the HRV-002 successor identity package before replay.
+        """
+    )
 
     render_section_title("Identity State Panel")
     identity_state_df = get_microsoft_identity_state()
@@ -5073,6 +5174,7 @@ elif st.session_state['current_view'] == 'Microsoft HRV-002 Readiness':
         """
         - **Blocker:** HRV-002 successor identity not ratified and no active successor thesis exists.
         - **Data readiness:** Evidence and pillar coverage are summarized above for source-context verification only.
+        - **Replay authority:** Replay remains blocked/not authorized in this board.
         - **Next action:** Ratify/create HRV-002 successor identity, then map verified Microsoft evidence into successor workflow.
         """
     )
@@ -5883,6 +5985,21 @@ elif st.session_state['current_view'] == 'New Thesis':
     st.header("Prepare Evaluation")
     st.caption("Enter a ticker and observation date. Athena will create or resume the evaluation shell and open the Assessment Workspace.")
 
+    with st.container(border=True):
+        st.subheader("Generation III Progress Mode")
+        st.caption(
+            "Create/enable the USWR limited-evidence case for operational observation while HRV-002 remains blocked."
+        )
+        if st.button("Ensure USWR Limited-Evidence Case", key="ensure_uswr_progress_mode", use_container_width=True):
+            uswr_result = ensure_uswr_limited_evidence_case(created_by="Phillip")
+            st.session_state["selected_thesis_id"] = int(uswr_result["thesis_id"])
+            st.session_state["current_view"] = "Workspace"
+            st.success(
+                "USWR limited-evidence scaffold is ready. "
+                f"thesis_id={int(uswr_result['thesis_id'])}, created={bool(uswr_result['created'])}."
+            )
+            st.rerun()
+
     with st.form("prepare_evaluation_form"):
         col1, col2 = st.columns(2)
 
@@ -5935,6 +6052,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
     thesis_id = st.session_state['selected_thesis_id']
     if thesis_id is None:
         render_page_header("Active Evaluation", "What needs judgment now?", eyebrow="Workspace")
+        render_friction_logger(default_thesis_id=None, default_workflow_area="Workspace Queue")
 
         workspace_rows = []
         workspace_theses_df = fetch_dataframe(
@@ -6069,6 +6187,7 @@ elif st.session_state['current_view'] in ['Workspace', 'Thesis Detail', 'Thesis 
                 st.metric(label, value)
 
         st.info(f"Next action: {workspace_clarity['next_action']}")
+        render_friction_logger(default_thesis_id=int(thesis_id), default_workflow_area="Workspace Detail")
         
         st.divider()
         
