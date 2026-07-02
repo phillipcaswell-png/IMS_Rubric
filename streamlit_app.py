@@ -2677,6 +2677,8 @@ if 'active_evaluation_request' not in st.session_state:
     st.session_state['active_evaluation_request'] = None
 if 'pending_prepare_request' not in st.session_state:
     st.session_state['pending_prepare_request'] = None
+if 'selected_thesis_id_explorer' not in st.session_state:
+    st.session_state['selected_thesis_id_explorer'] = None
 
 
 def _capture_navigation_event():
@@ -2788,6 +2790,8 @@ def _is_primary_nav_active(label, current_view):
         return current_view in ["Workspace", "Thesis Workspace", "Thesis Detail"]
     if label == "History":
         return current_view in ["History", "Documentation"]
+    if label == "Data Explorer":
+        return current_view == "Data Explorer"
     if label == "Microsoft HRV-002 Readiness":
         return current_view == "Microsoft HRV-002 Readiness"
     if label == "Settings":
@@ -2811,6 +2815,8 @@ def _apply_primary_navigation(label):
     elif label == "History":
         st.session_state["current_view"] = "History"
         st.session_state["selected_thesis_id"] = None
+    elif label == "Data Explorer":
+        st.session_state["current_view"] = "Data Explorer"
     elif label == "Microsoft HRV-002 Readiness":
         st.session_state["current_view"] = "Microsoft HRV-002 Readiness"
         st.session_state["selected_thesis_id"] = None
@@ -2821,7 +2827,7 @@ def _apply_primary_navigation(label):
 
 def render_sidebar_primary_navigation(current_view):
     """Render primary navigation controls."""
-    primary_nav_labels = ["Home", "Portfolio", "Workspace", "History", "Microsoft HRV-002 Readiness", "Settings"]
+    primary_nav_labels = ["Home", "Portfolio", "Workspace", "History", "Data Explorer", "Microsoft HRV-002 Readiness", "Settings"]
     for nav_label in primary_nav_labels:
         button_type = "primary" if _is_primary_nav_active(nav_label, current_view) else "secondary"
         if st.button(nav_label, key=f"nav_{nav_label}", use_container_width=True, type=button_type):
@@ -3463,6 +3469,45 @@ def get_microsoft_period_coverage(thesis_id=MICROSOFT_READINESS_SOURCE_THESIS_ID
     ]
 
     return pd.DataFrame(period_rows), can_verify_year_coverage, {"evidence_items": evidence_support, "decision_logs": decision_support}
+
+
+def _explorer_available_columns(table_name, preferred_columns):
+    """Return available columns for a table from an ordered preferred list."""
+    support = _schema_table_support(table_name)
+    if not support["available"]:
+        return [], support
+    available = [column for column in preferred_columns if column in support["columns"]]
+    return available, support
+
+
+def _explorer_count_value(query, params=()):
+    """Return integer count from a SELECT count query."""
+    df = fetch_dataframe(query, params)
+    if df.empty:
+        return 0
+    column_name = df.columns[0]
+    return _safe_int(df.iloc[0].get(column_name))
+
+
+def _render_explorer_dataset(
+    section_label,
+    description,
+    dataframe,
+    unavailable=False,
+    empty_message="No rows found for this thesis.",
+):
+    """Render one read-only dataset expander for Data Explorer."""
+    with st.expander(section_label, expanded=False):
+        st.caption(description)
+        if unavailable:
+            st.info("Unavailable in schema.")
+            return
+        row_count = len(dataframe.index)
+        st.caption(f"Row count: {row_count}")
+        if dataframe.empty:
+            st.info(empty_message)
+            return
+        st.dataframe(dataframe, use_container_width=True, hide_index=True)
 
 
 def derive_asset_status_label(company_name, ticker, persisted_status, thesis_id=None, fallback="—"):
@@ -5046,6 +5091,750 @@ elif st.session_state['current_view'] == 'Microsoft HRV-002 Readiness':
     )
 
     render_athena_footer()
+
+elif st.session_state['current_view'] == 'Data Explorer':
+    render_page_header(
+        "Data Explorer",
+        "Inspect thesis-linked runtime data directly with read-only queries.",
+        eyebrow="Explorer",
+    )
+    st.caption(f"Runtime DB Path: {DATABASE_FILE}")
+    render_status_chip("Read-only", tone="gold")
+    st.warning(
+        "This page is read-only. It does not create, edit, promote, attach, migrate, score, or route evidence."
+    )
+
+    theses_selector_support = _schema_table_support("theses", ["id", "company_name", "ticker", "status", "created_at"])
+    if not theses_selector_support["available"] or "id" in theses_selector_support["missing_columns"]:
+        render_section_title("Thesis Selector")
+        st.info("Unavailable in schema.")
+        render_athena_footer()
+    else:
+        selector_columns = [
+            column
+            for column in ["id", "company_name", "ticker", "status", "created_at"]
+            if column in theses_selector_support["columns"]
+        ]
+        theses_selector_df = fetch_dataframe(
+            f"SELECT {', '.join(selector_columns)} FROM theses ORDER BY id ASC"
+        )
+
+        render_section_title("Thesis Selector")
+        if theses_selector_df.empty:
+            empty_state("No thesis records found in runtime data.")
+            render_athena_footer()
+        else:
+            st.dataframe(theses_selector_df, use_container_width=True, hide_index=True)
+
+            available_thesis_ids = sorted(theses_selector_df["id"].astype(int).tolist())
+            selected_explorer_id = st.session_state.get("selected_thesis_id_explorer")
+            if selected_explorer_id not in available_thesis_ids:
+                st.session_state["selected_thesis_id_explorer"] = int(available_thesis_ids[0])
+                st.session_state["data_explorer_thesis_selector"] = int(available_thesis_ids[0])
+
+            if 14 in available_thesis_ids:
+                if st.button(
+                    "Open Microsoft thesis_id=14 — historical artifact / HRV-002 source context",
+                    key="data_explorer_open_msft_14",
+                    use_container_width=False,
+                ):
+                    st.session_state["selected_thesis_id_explorer"] = 14
+                    st.session_state["data_explorer_thesis_selector"] = 14
+                    st.rerun()
+
+            selector_lookup = theses_selector_df.set_index("id", drop=False)
+
+            selected_thesis_id_explorer = st.selectbox(
+                "Select thesis",
+                options=available_thesis_ids,
+                index=available_thesis_ids.index(int(st.session_state["selected_thesis_id_explorer"])),
+                format_func=lambda thesis_id: (
+                    f"{int(thesis_id)} | "
+                    f"{format_display_value(selector_lookup.loc[thesis_id].get('company_name'), fallback='—')} | "
+                    f"{format_display_value(selector_lookup.loc[thesis_id].get('ticker'), fallback='—')} | "
+                    f"{format_display_value(selector_lookup.loc[thesis_id].get('status'), fallback='—')} | "
+                    f"{format_display_value(selector_lookup.loc[thesis_id].get('created_at'), fallback='—')}"
+                ),
+                key="data_explorer_thesis_selector",
+            )
+            st.session_state["selected_thesis_id_explorer"] = int(selected_thesis_id_explorer)
+            selected_thesis_id = int(selected_thesis_id_explorer)
+
+            selected_thesis_full_df = fetch_dataframe("SELECT * FROM theses WHERE id = ?", (selected_thesis_id,))
+            selected_thesis_row = selected_thesis_full_df.iloc[0].to_dict() if not selected_thesis_full_df.empty else {}
+
+            render_section_title("Selected Thesis Identity")
+            identity_fields = [
+                "id",
+                "company_name",
+                "ticker",
+                "status",
+                "decision_question",
+                "account_type",
+                "portfolio_role",
+                "primary_horizon",
+                "regime_state",
+                "reviewer",
+                "drl",
+                "validation_mode",
+                "evidence_cutoff_date",
+                "created_at",
+            ]
+            identity_rows = []
+            thesis_columns_present = set(selected_thesis_full_df.columns.tolist()) if not selected_thesis_full_df.empty else set()
+            for field_name in identity_fields:
+                if field_name == "id":
+                    display_field = "thesis_id"
+                else:
+                    display_field = field_name
+                if field_name in thesis_columns_present:
+                    identity_rows.append(
+                        {
+                            "Field": display_field,
+                            "Value": format_display_value(selected_thesis_row.get(field_name), fallback="—"),
+                        }
+                    )
+                else:
+                    identity_rows.append({"Field": display_field, "Value": "Unavailable in schema."})
+            st.dataframe(pd.DataFrame(identity_rows), use_container_width=True, hide_index=True)
+
+            render_section_title("Summary Counts")
+            count_rows = []
+
+            decision_logs_support = _schema_table_support("decision_logs", ["thesis_id"])
+            if decision_logs_support["available"] and not decision_logs_support["missing_columns"]:
+                decision_log_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM decision_logs WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                decision_log_count = "Unavailable in schema."
+            count_rows.append({"Metric": "decision log count", "Value": decision_log_count})
+
+            thesis_reviews_support = _schema_table_support("thesis_reviews", ["thesis_id"])
+            if thesis_reviews_support["available"] and not thesis_reviews_support["missing_columns"]:
+                thesis_review_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM thesis_reviews WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                thesis_review_count = "Unavailable in schema."
+            count_rows.append({"Metric": "thesis review count", "Value": thesis_review_count})
+
+            thesis_events_support = _schema_table_support("thesis_events", ["thesis_id"])
+            if thesis_events_support["available"] and not thesis_events_support["missing_columns"]:
+                thesis_event_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM thesis_events WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                thesis_event_count = "Unavailable in schema."
+            count_rows.append({"Metric": "thesis event count", "Value": thesis_event_count})
+
+            evidence_staging_support = _schema_table_support(
+                "evidence_staging", ["thesis_id", "intake_status", "review_date", "promoted_at"]
+            )
+            if evidence_staging_support["available"] and not evidence_staging_support["missing_columns"]:
+                staged_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evidence_staging WHERE thesis_id = ? AND intake_status = 'Pending'",
+                    (selected_thesis_id,),
+                )
+                reviewed_staged_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evidence_staging WHERE thesis_id = ? AND review_date IS NOT NULL AND TRIM(review_date) <> ''",
+                    (selected_thesis_id,),
+                )
+                promoted_staged_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evidence_staging WHERE thesis_id = ? AND promoted_at IS NOT NULL AND TRIM(promoted_at) <> ''",
+                    (selected_thesis_id,),
+                )
+            else:
+                staged_count = "Unavailable in schema."
+                reviewed_staged_count = "Unavailable in schema."
+                promoted_staged_count = "Unavailable in schema."
+            count_rows.append({"Metric": "staged evidence count", "Value": staged_count})
+            count_rows.append({"Metric": "reviewed staged evidence count", "Value": reviewed_staged_count})
+            count_rows.append({"Metric": "promoted staged evidence count", "Value": promoted_staged_count})
+
+            evidence_items_support = _schema_table_support("evidence_items", ["id", "thesis_id"])
+            if evidence_items_support["available"] and not evidence_items_support["missing_columns"]:
+                attached_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evidence_items WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                attached_count = "Unavailable in schema."
+            count_rows.append({"Metric": "attached evidence item count", "Value": attached_count})
+
+            evidence_observations_support = _schema_table_support("evidence_observations", ["evidence_item_id"])
+            if (
+                evidence_observations_support["available"]
+                and not evidence_observations_support["missing_columns"]
+                and evidence_items_support["available"]
+                and not evidence_items_support["missing_columns"]
+            ):
+                observation_count = _explorer_count_value(
+                    """
+                    SELECT COUNT(*) AS value_count
+                    FROM evidence_observations eo
+                    JOIN evidence_items ei ON ei.id = eo.evidence_item_id
+                    WHERE ei.thesis_id = ?
+                    """,
+                    (selected_thesis_id,),
+                )
+            else:
+                observation_count = "Unavailable in schema."
+            count_rows.append({"Metric": "evidence observation count", "Value": observation_count})
+
+            pillar_scores_support = _schema_table_support("pillar_scores", ["id", "thesis_id"])
+            if pillar_scores_support["available"] and not pillar_scores_support["missing_columns"]:
+                pillar_score_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM pillar_scores WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                pillar_score_count = "Unavailable in schema."
+            count_rows.append({"Metric": "pillar score count", "Value": pillar_score_count})
+
+            pillar_links_support = _schema_table_support("pillar_evidence_links", ["pillar_score_id", "evidence_item_id"])
+            if (
+                pillar_links_support["available"]
+                and not pillar_links_support["missing_columns"]
+                and pillar_scores_support["available"]
+                and not pillar_scores_support["missing_columns"]
+            ):
+                pillar_link_count = _explorer_count_value(
+                    """
+                    SELECT COUNT(*) AS value_count
+                    FROM pillar_evidence_links pel
+                    JOIN pillar_scores ps ON ps.id = pel.pillar_score_id
+                    WHERE ps.thesis_id = ?
+                    """,
+                    (selected_thesis_id,),
+                )
+            else:
+                pillar_link_count = "Unavailable in schema."
+            count_rows.append({"Metric": "pillar evidence link count", "Value": pillar_link_count})
+
+            eval_prep_support = _schema_table_support("evaluation_preparations", ["thesis_id"])
+            if eval_prep_support["available"] and not eval_prep_support["missing_columns"]:
+                prep_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evaluation_preparations WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                prep_count = "Unavailable in schema."
+            count_rows.append({"Metric": "evaluation preparation count", "Value": prep_count})
+
+            eval_candidate_support = _schema_table_support("evaluation_candidate_documents", ["thesis_id"])
+            if eval_candidate_support["available"] and not eval_candidate_support["missing_columns"]:
+                candidate_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evaluation_candidate_documents WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                candidate_count = "Unavailable in schema."
+            count_rows.append({"Metric": "evaluation candidate document count", "Value": candidate_count})
+
+            eval_acquired_support = _schema_table_support("evaluation_acquired_documents", ["thesis_id"])
+            if eval_acquired_support["available"] and not eval_acquired_support["missing_columns"]:
+                acquired_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evaluation_acquired_documents WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                acquired_count = "Unavailable in schema."
+            count_rows.append({"Metric": "evaluation acquired document count", "Value": acquired_count})
+
+            eval_extracted_support = _schema_table_support("evaluation_extracted_observations", ["thesis_id"])
+            if eval_extracted_support["available"] and not eval_extracted_support["missing_columns"]:
+                extracted_count = _explorer_count_value(
+                    "SELECT COUNT(*) AS value_count FROM evaluation_extracted_observations WHERE thesis_id = ?",
+                    (selected_thesis_id,),
+                )
+            else:
+                extracted_count = "Unavailable in schema."
+            count_rows.append({"Metric": "evaluation extracted observation count", "Value": extracted_count})
+
+            st.dataframe(pd.DataFrame(count_rows), use_container_width=True, hide_index=True)
+
+            thesis_row_support = _schema_table_support("theses", ["id"])
+            thesis_full_df = pd.DataFrame()
+            thesis_unavailable = not thesis_row_support["available"] or bool(thesis_row_support["missing_columns"])
+            if not thesis_unavailable:
+                thesis_full_df = fetch_dataframe("SELECT * FROM theses WHERE id = ?", (selected_thesis_id,))
+            _render_explorer_dataset(
+                "A. Full Thesis Row",
+                "Full thesis record from the theses table for the selected thesis_id.",
+                thesis_full_df,
+                unavailable=thesis_unavailable,
+            )
+
+            decision_log_columns = [
+                "id",
+                "thesis_id",
+                "recommendation",
+                "horizon_map",
+                "action",
+                "review_date",
+                "decision_rationale",
+                "key_risks",
+                "falsification_summary",
+                "next_review_date",
+                "created_at",
+            ]
+            decision_columns, decision_support = _explorer_available_columns("decision_logs", decision_log_columns)
+            decision_df = pd.DataFrame()
+            decision_unavailable = (not decision_support["available"]) or ("thesis_id" not in decision_support["columns"]) or (len(decision_columns) == 0)
+            if not decision_unavailable:
+                decision_df = fetch_dataframe(
+                    f"SELECT {', '.join(decision_columns)} FROM decision_logs WHERE thesis_id = ? ORDER BY id DESC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "B. Decision Logs",
+                "Decision history and recommendation metadata for the selected thesis.",
+                decision_df,
+                unavailable=decision_unavailable,
+            )
+
+            review_columns = [
+                "id",
+                "thesis_id",
+                "decision_log_id",
+                "review_date",
+                "review_horizon",
+                "outcome_summary",
+                "outcome_attribution_type",
+                "outcome_evidence",
+                "thesis_quality_assessment",
+                "decision_quality_preserved",
+                "framework_review_eligible",
+                "reviewer",
+                "created_at",
+            ]
+            review_available_columns, review_support = _explorer_available_columns("thesis_reviews", review_columns)
+            review_df = pd.DataFrame()
+            review_unavailable = (not review_support["available"]) or ("thesis_id" not in review_support["columns"]) or (len(review_available_columns) == 0)
+            if not review_unavailable:
+                review_df = fetch_dataframe(
+                    f"SELECT {', '.join(review_available_columns)} FROM thesis_reviews WHERE thesis_id = ? ORDER BY id DESC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "C. Thesis Reviews",
+                "Post-decision review records and outcome attribution fields.",
+                review_df,
+                unavailable=review_unavailable,
+            )
+
+            staging_columns = [
+                "id",
+                "staging_uuid",
+                "thesis_id",
+                "source_type",
+                "source_name",
+                "source_url",
+                "publication_date",
+                "retrieval_date",
+                "author_publisher",
+                "evidence_summary",
+                "key_takeaway",
+                "preliminary_grade",
+                "intake_status",
+                "rejection_reason",
+                "reviewed_by",
+                "review_date",
+                "promoted_evidence_id",
+                "promoted_at",
+                "created_by",
+                "created_at",
+                "archive_reason",
+            ]
+            staging_available_columns, staging_support = _explorer_available_columns("evidence_staging", staging_columns)
+            staging_df = pd.DataFrame()
+            staging_unavailable = (not staging_support["available"]) or ("thesis_id" not in staging_support["columns"]) or (len(staging_available_columns) == 0)
+            if not staging_unavailable:
+                staging_df = fetch_dataframe(
+                    f"SELECT {', '.join(staging_available_columns)} FROM evidence_staging WHERE thesis_id = ? ORDER BY id ASC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "D. Evidence Staging",
+                "Staged evidence intake records before and after review/promotion steps.",
+                staging_df,
+                unavailable=staging_unavailable,
+            )
+
+            evidence_item_columns = [
+                "id",
+                "thesis_id",
+                "source_name",
+                "source_type",
+                "publication_date",
+                "evidence_grade",
+                "confidence_basis",
+                "url_or_citation",
+                "related_pillar",
+                "evidence_summary",
+                "title",
+                "source_publisher",
+                "key_takeaway",
+                "tags",
+                "credibility_score",
+                "materiality_score",
+                "thesis_alignment",
+                "status",
+                "created_at",
+            ]
+            evidence_item_available_columns, evidence_item_support = _explorer_available_columns("evidence_items", evidence_item_columns)
+            evidence_items_df = pd.DataFrame()
+            evidence_items_unavailable = (not evidence_item_support["available"]) or ("thesis_id" not in evidence_item_support["columns"]) or (len(evidence_item_available_columns) == 0)
+            if not evidence_items_unavailable:
+                evidence_items_df = fetch_dataframe(
+                    f"SELECT {', '.join(evidence_item_available_columns)} FROM evidence_items WHERE thesis_id = ? ORDER BY id ASC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "E. Evidence Items",
+                "Promoted or attached evidence records currently linked to the selected thesis.",
+                evidence_items_df,
+                unavailable=evidence_items_unavailable,
+            )
+
+            observation_df = pd.DataFrame()
+            observation_unavailable = False
+            eo_support = _schema_table_support("evidence_observations", ["evidence_item_id"])
+            ei_support = _schema_table_support("evidence_items", ["id", "thesis_id"])
+            if (
+                (not eo_support["available"])
+                or (not ei_support["available"])
+                or ("evidence_item_id" not in eo_support["columns"])
+                or ("id" not in ei_support["columns"])
+                or ("thesis_id" not in ei_support["columns"])
+            ):
+                observation_unavailable = True
+            else:
+                observation_select_expressions = []
+                if "id" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.id AS observation_id")
+                if "evidence_item_id" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.evidence_item_id")
+                if "source_name" in ei_support["columns"]:
+                    observation_select_expressions.append("ei.source_name AS evidence_source_name")
+                if "source_type" in ei_support["columns"]:
+                    observation_select_expressions.append("ei.source_type AS evidence_source_type")
+                if "publication_date" in ei_support["columns"]:
+                    observation_select_expressions.append("ei.publication_date AS evidence_publication_date")
+                if "pillar_id" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.pillar_id")
+                if "observation_category" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.observation_category")
+                if "observation_text" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.observation_text")
+                if "evidence_quote" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.evidence_quote")
+                if "source_location" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.source_location")
+                if "analyst_confidence" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.analyst_confidence")
+                if "status" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.status AS observation_status")
+                if "created_by" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.created_by AS observation_created_by")
+                if "created_at" in eo_support["columns"]:
+                    observation_select_expressions.append("eo.created_at AS observation_created_at")
+
+                if len(observation_select_expressions) == 0:
+                    observation_unavailable = True
+                else:
+                    observation_order_clause = "ORDER BY eo.id DESC"
+                    if "created_at" in eo_support["columns"]:
+                        observation_order_clause = "ORDER BY eo.created_at DESC"
+                    observation_df = fetch_dataframe(
+                        f"""
+                        SELECT {', '.join(observation_select_expressions)}
+                        FROM evidence_observations eo
+                        JOIN evidence_items ei ON ei.id = eo.evidence_item_id
+                        WHERE ei.thesis_id = ?
+                        {observation_order_clause}
+                        """,
+                        (selected_thesis_id,),
+                    )
+            _render_explorer_dataset(
+                "F. Evidence Observations",
+                "Observation records joined to their evidence items for contextual traceability.",
+                observation_df,
+                unavailable=observation_unavailable,
+            )
+
+            pillar_score_columns = [
+                "id",
+                "thesis_id",
+                "pillar_id",
+                "pillar_name",
+                "score",
+                "rag_status",
+                "evidence_grade",
+                "confidence_basis",
+                "primary_sources",
+                "evidence_items",
+                "inference",
+                "inference_confidence",
+                "falsification_trigger",
+                "score_rationale",
+                "judgment",
+                "reviewer",
+                "review_date",
+                "drl",
+                "created_at",
+            ]
+            pillar_score_available_columns, pillar_score_support = _explorer_available_columns("pillar_scores", pillar_score_columns)
+            pillar_score_df = pd.DataFrame()
+            pillar_score_unavailable = (not pillar_score_support["available"]) or ("thesis_id" not in pillar_score_support["columns"]) or (len(pillar_score_available_columns) == 0)
+            if not pillar_score_unavailable:
+                pillar_score_df = fetch_dataframe(
+                    f"SELECT {', '.join(pillar_score_available_columns)} FROM pillar_scores WHERE thesis_id = ? ORDER BY pillar_id ASC, id ASC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "G. Pillar Scores",
+                "Business and investment pillar assessments recorded for the selected thesis.",
+                pillar_score_df,
+                unavailable=pillar_score_unavailable,
+            )
+
+            pillar_link_df = pd.DataFrame()
+            pillar_link_unavailable = False
+            pel_support = _schema_table_support("pillar_evidence_links", ["pillar_score_id", "evidence_item_id"])
+            ps_support = _schema_table_support("pillar_scores", ["id", "thesis_id"])
+            ei_link_support = _schema_table_support("evidence_items", ["id"])
+            if (
+                (not pel_support["available"])
+                or (not ps_support["available"])
+                or (not ei_link_support["available"])
+                or ("pillar_score_id" not in pel_support["columns"])
+                or ("evidence_item_id" not in pel_support["columns"])
+                or ("id" not in ps_support["columns"])
+                or ("thesis_id" not in ps_support["columns"])
+                or ("id" not in ei_link_support["columns"])
+            ):
+                pillar_link_unavailable = True
+            else:
+                link_select_expressions = []
+                if "id" in pel_support["columns"]:
+                    link_select_expressions.append("pel.id AS link_id")
+                if "pillar_score_id" in pel_support["columns"]:
+                    link_select_expressions.append("pel.pillar_score_id")
+                if "pillar_id" in ps_support["columns"]:
+                    link_select_expressions.append("ps.pillar_id")
+                if "pillar_name" in ps_support["columns"]:
+                    link_select_expressions.append("ps.pillar_name")
+                if "evidence_item_id" in pel_support["columns"]:
+                    link_select_expressions.append("pel.evidence_item_id")
+                if "source_name" in ei_link_support["columns"]:
+                    link_select_expressions.append("ei.source_name AS evidence_source_name")
+                if "source_type" in ei_link_support["columns"]:
+                    link_select_expressions.append("ei.source_type AS evidence_source_type")
+                if "publication_date" in ei_link_support["columns"]:
+                    link_select_expressions.append("ei.publication_date AS evidence_publication_date")
+                if "status" in ei_link_support["columns"]:
+                    link_select_expressions.append("ei.status AS evidence_status")
+                if "created_by" in pel_support["columns"]:
+                    link_select_expressions.append("pel.created_by AS link_created_by")
+                if "created_at" in pel_support["columns"]:
+                    link_select_expressions.append("pel.created_at AS link_created_at")
+
+                if len(link_select_expressions) == 0:
+                    pillar_link_unavailable = True
+                else:
+                    link_order_clause = "ORDER BY pel.id DESC"
+                    if "created_at" in pel_support["columns"]:
+                        link_order_clause = "ORDER BY pel.created_at DESC"
+                    pillar_link_df = fetch_dataframe(
+                        f"""
+                        SELECT {', '.join(link_select_expressions)}
+                        FROM pillar_evidence_links pel
+                        JOIN pillar_scores ps ON ps.id = pel.pillar_score_id
+                        JOIN evidence_items ei ON ei.id = pel.evidence_item_id
+                        WHERE ps.thesis_id = ?
+                        {link_order_clause}
+                        """,
+                        (selected_thesis_id,),
+                    )
+            _render_explorer_dataset(
+                "H. Pillar Evidence Links",
+                "Direct links between pillar score records and evidence items.",
+                pillar_link_df,
+                unavailable=pillar_link_unavailable,
+                empty_message="No direct pillar evidence links found for this thesis.",
+            )
+
+            thesis_event_columns = ["id", "thesis_id", "event_type", "event_description", "created_by", "created_at", "version"]
+            thesis_event_available_columns, thesis_event_support = _explorer_available_columns("thesis_events", thesis_event_columns)
+            thesis_event_df = pd.DataFrame()
+            thesis_event_unavailable = (not thesis_event_support["available"]) or ("thesis_id" not in thesis_event_support["columns"]) or (len(thesis_event_available_columns) == 0)
+            if not thesis_event_unavailable:
+                event_order_clause = "ORDER BY id DESC"
+                if "created_at" in thesis_event_support["columns"]:
+                    event_order_clause = "ORDER BY created_at DESC"
+                thesis_event_df = fetch_dataframe(
+                    f"SELECT {', '.join(thesis_event_available_columns)} FROM thesis_events WHERE thesis_id = ? {event_order_clause}",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "I. Thesis Events",
+                "Audit and workflow event timeline for the selected thesis.",
+                thesis_event_df,
+                unavailable=thesis_event_unavailable,
+            )
+
+            eval_prep_columns = [
+                "id",
+                "ticker",
+                "observation_date",
+                "thesis_id",
+                "lifecycle_state",
+                "workspace_ready",
+                "readiness_status",
+                "evidence_discovery_status",
+                "candidate_count",
+                "evidence_acquisition_status",
+                "acquired_document_count",
+                "extraction_status",
+                "extracted_observation_count",
+                "extraction_timestamp",
+                "extractor_version",
+                "created_at",
+                "updated_at",
+            ]
+            eval_prep_available_columns, eval_prep_table_support = _explorer_available_columns("evaluation_preparations", eval_prep_columns)
+            eval_prep_df = pd.DataFrame()
+            eval_prep_unavailable = (not eval_prep_table_support["available"]) or ("thesis_id" not in eval_prep_table_support["columns"]) or (len(eval_prep_available_columns) == 0)
+            if not eval_prep_unavailable:
+                eval_prep_df = fetch_dataframe(
+                    f"SELECT {', '.join(eval_prep_available_columns)} FROM evaluation_preparations WHERE thesis_id = ? ORDER BY id DESC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "J. Evaluation Preparation Data",
+                "Preparation-state records used by discovery, acquisition, and extraction workflows.",
+                eval_prep_df,
+                unavailable=eval_prep_unavailable,
+            )
+
+            candidate_columns = [
+                "id",
+                "preparation_id",
+                "thesis_id",
+                "title",
+                "source",
+                "document_type",
+                "publication_date",
+                "reference_url",
+                "reference_id",
+                "discovery_status",
+                "provider_name",
+                "created_at",
+            ]
+            candidate_available_columns, candidate_table_support = _explorer_available_columns("evaluation_candidate_documents", candidate_columns)
+            candidate_df = pd.DataFrame()
+            candidate_unavailable = (not candidate_table_support["available"]) or ("thesis_id" not in candidate_table_support["columns"]) or (len(candidate_available_columns) == 0)
+            if not candidate_unavailable:
+                candidate_df = fetch_dataframe(
+                    f"SELECT {', '.join(candidate_available_columns)} FROM evaluation_candidate_documents WHERE thesis_id = ? ORDER BY id DESC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "K. Evaluation Candidate Documents",
+                "Candidate documents discovered before acquisition for this thesis.",
+                candidate_df,
+                unavailable=candidate_unavailable,
+            )
+
+            acquired_df = pd.DataFrame()
+            acquired_unavailable = False
+            acquired_support = _schema_table_support("evaluation_acquired_documents", ["thesis_id"])
+            if not acquired_support["available"] or "thesis_id" not in acquired_support["columns"]:
+                acquired_unavailable = True
+            else:
+                acquired_select_expressions = []
+                for column_name in [
+                    "id",
+                    "preparation_id",
+                    "thesis_id",
+                    "title",
+                    "source",
+                    "document_type",
+                    "publication_date",
+                    "reference_url",
+                    "reference_id",
+                    "provider_name",
+                    "acquisition_status",
+                    "retrieval_timestamp",
+                    "source_reference",
+                    "content_type",
+                    "acquisition_error",
+                    "created_at",
+                ]:
+                    if column_name in acquired_support["columns"]:
+                        acquired_select_expressions.append(column_name)
+
+                if "source_content" in acquired_support["columns"]:
+                    acquired_select_expressions.append(
+                        "CASE WHEN source_content IS NOT NULL AND TRIM(source_content) <> '' THEN 'Yes' ELSE 'No' END AS source_content_exists"
+                    )
+                    acquired_select_expressions.append("LENGTH(source_content) AS source_content_character_count")
+                else:
+                    acquired_select_expressions.append("'Unavailable in schema.' AS source_content_exists")
+                    acquired_select_expressions.append("NULL AS source_content_character_count")
+
+                if len(acquired_select_expressions) == 0:
+                    acquired_unavailable = True
+                else:
+                    acquired_df = fetch_dataframe(
+                        f"SELECT {', '.join(acquired_select_expressions)} FROM evaluation_acquired_documents WHERE thesis_id = ? ORDER BY id DESC",
+                        (selected_thesis_id,),
+                    )
+            _render_explorer_dataset(
+                "L. Evaluation Acquired Documents",
+                "Acquired document records; source content is represented only by existence and character count fields.",
+                acquired_df,
+                unavailable=acquired_unavailable,
+            )
+
+            extracted_columns = [
+                "id",
+                "extraction_run_id",
+                "preparation_id",
+                "thesis_id",
+                "acquired_document_id",
+                "original_candidate_identifier",
+                "source_reference",
+                "acquisition_timestamp",
+                "extraction_timestamp",
+                "extractor_version",
+                "passage",
+                "pillar_signal",
+                "confidence",
+                "source_location",
+                "created_at",
+            ]
+            extracted_available_columns, extracted_table_support = _explorer_available_columns("evaluation_extracted_observations", extracted_columns)
+            extracted_df = pd.DataFrame()
+            extracted_unavailable = (not extracted_table_support["available"]) or ("thesis_id" not in extracted_table_support["columns"]) or (len(extracted_available_columns) == 0)
+            if not extracted_unavailable:
+                extracted_df = fetch_dataframe(
+                    f"SELECT {', '.join(extracted_available_columns)} FROM evaluation_extracted_observations WHERE thesis_id = ? ORDER BY id DESC",
+                    (selected_thesis_id,),
+                )
+            _render_explorer_dataset(
+                "M. Evaluation Extracted Observations",
+                "Extraction outputs linked to the selected thesis for evidence synthesis review.",
+                extracted_df,
+                unavailable=extracted_unavailable,
+            )
+
+            render_athena_footer()
 
 elif st.session_state['current_view'] == 'Hermes Workflow Inbox':
     st.header("📬 Hermes — Workflow Inbox")
